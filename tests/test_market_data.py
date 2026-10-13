@@ -1,9 +1,10 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 
+from app.config import Settings
 from app.schemas.market import KlineUpdate, MarketTicker
 from app.services.exchange_client import (
     ms_to_datetime,
@@ -12,6 +13,7 @@ from app.services.exchange_client import (
     parse_ticker,
     to_display_symbol,
 )
+from app.services.market_data_service import MarketDataService
 
 ALLOWED = {"BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"}
 
@@ -163,3 +165,140 @@ def test_invalid_json_returns_none(raw):
 def test_unknown_message_type_is_ignored():
     data = {"e": "aggTrade", "s": "BTCUSDT", "p": "113250.55"}
     assert parse_message(combined("btcusdt@aggTrade", data), ALLOWED) is None
+
+
+def make_service():
+    service = MarketDataService(Settings(_env_file=None))
+    # No real connection in tests; pretend the stream is up.
+    service.client.status = "connected"
+    return service
+
+
+def ticker_at(event_ms, price="113250.55", **overrides):
+    return parse_ticker(make_ticker(E=event_ms, c=price, **overrides))
+
+
+def subscribe_recorder(service):
+    events = []
+
+    async def record(event):
+        events.append(event)
+
+    service.subscribe(record)
+    return events
+
+
+async def test_newer_ticker_replaces_older():
+    service = make_service()
+    events = subscribe_recorder(service)
+
+    await service.handle_ticker(ticker_at(1760380800000, "113250.55"))
+    await service.handle_ticker(ticker_at(1760380801000, "113300.00"))
+
+    market = service.snapshot()["markets"][0]
+    assert market["ticker"].last_price == Decimal("113300.00")
+    assert [event["data"].last_price for event in events] == [
+        Decimal("113250.55"),
+        Decimal("113300.00"),
+    ]
+
+
+async def test_older_ticker_is_ignored():
+    service = make_service()
+    events = subscribe_recorder(service)
+
+    await service.handle_ticker(ticker_at(1760380801000, "113300.00"))
+    await service.handle_ticker(ticker_at(1760380800000, "113250.55"))
+
+    assert service.snapshot()["markets"][0]["ticker"].last_price == Decimal("113300.00")
+    assert len(events) == 1
+
+
+async def test_same_data_does_not_notify_but_refreshes_update_time():
+    service = make_service()
+    events = subscribe_recorder(service)
+
+    await service.handle_ticker(ticker_at(1760380800000))
+    first_update = service.snapshot()["markets"][0]["updated_at"]
+    await service.handle_ticker(ticker_at(1760380801000))
+
+    assert len(events) == 1
+    assert service.snapshot()["markets"][0]["updated_at"] >= first_update
+
+
+async def test_freshness_live_then_stale_after_threshold():
+    service = make_service()
+    await service.handle_ticker(ticker_at(1760380800000))
+    received_at = service.snapshot()["markets"][0]["updated_at"]
+
+    assert service.freshness("BTCUSDT", now=received_at + timedelta(seconds=10)) == "live"
+    assert service.freshness("BTCUSDT", now=received_at + timedelta(seconds=16)) == "stale"
+
+
+async def test_freshness_is_stale_when_client_not_connected():
+    service = make_service()
+    await service.handle_ticker(ticker_at(1760380800000))
+    service.client.status = "reconnecting"
+
+    assert service.freshness("BTCUSDT") == "stale"
+
+
+def test_freshness_no_data_without_ticker():
+    service = make_service()
+    assert service.freshness("ETHUSDT") == "no_data"
+
+
+def test_snapshot_lists_all_symbols_without_data():
+    service = make_service()
+    snapshot = service.snapshot()
+
+    assert snapshot["connection_status"] == "connected"
+    assert [market["symbol"] for market in snapshot["markets"]] == [
+        "BTCUSDT",
+        "ETHUSDT",
+        "SOLUSDT",
+        "BNBUSDT",
+        "ADAUSDT",
+    ]
+    eth = snapshot["markets"][1]
+    assert eth["display_symbol"] == "ETH/USDT"
+    assert eth["ticker"] is None
+    assert eth["freshness"] == "no_data"
+
+
+async def test_failing_subscriber_does_not_break_others():
+    service = make_service()
+
+    async def broken(_event):
+        raise RuntimeError("subscriber failed")
+
+    service.subscribe(broken)
+    events = subscribe_recorder(service)
+
+    await service.handle_ticker(ticker_at(1760380800000))
+
+    assert len(events) == 1
+
+
+async def test_kline_is_stored_and_published():
+    service = make_service()
+    events = subscribe_recorder(service)
+
+    await service.handle_kline(parse_kline(make_kline(False)))
+
+    assert events[0]["type"] == "kline"
+    assert events[0]["data"].close == Decimal("4122.75")
+
+
+async def test_start_and_stop_finish_client_task(monkeypatch):
+    service = make_service()
+
+    async def fake_run():
+        await service.client._stop_event.wait()
+
+    monkeypatch.setattr(service.client, "run", fake_run)
+
+    await service.start()
+    await service.stop()
+
+    assert service._task is None

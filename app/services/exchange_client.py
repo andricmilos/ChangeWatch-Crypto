@@ -182,6 +182,12 @@ KlineCallback = Callable[[KlineUpdate], Awaitable[None]]
 ConnectFactory = Callable[[str], Any]
 
 
+def connect_to_binance(url: str) -> connect:
+    # Binance answers the close frame quickly but drops TCP only after ~5 s; the default
+    # 10 s close_timeout would make every shutdown wait for that.
+    return connect(url, close_timeout=1)
+
+
 class BinanceStreamClient:
     """One shared connection to Binance combined streams, with automatic reconnect."""
 
@@ -190,7 +196,7 @@ class BinanceStreamClient:
         url: str,
         on_ticker: TickerCallback,
         on_kline: KlineCallback,
-        connect_factory: ConnectFactory = connect,
+        connect_factory: ConnectFactory = connect_to_binance,
         *,
         allowed_symbols: set[str],
         receive_timeout: float = 30,
@@ -251,18 +257,22 @@ class BinanceStreamClient:
             await self._connection.close()
 
     async def _receive_loop(self, connection: Any) -> None:
-        while not self._stop_event.is_set():
+        # stop() was called while connecting; leaving the `async with` closes the connection.
+        if self._stop_event.is_set():
+            return
+        # Read until recv() raises, even after stop(): Binance's close frame arrives behind
+        # already queued messages, so close() would hang until its timeout if we stopped reading.
+        while True:
             try:
                 raw = await asyncio.wait_for(connection.recv(), timeout=self.receive_timeout)
             except TimeoutError as exc:
                 raise ConnectionError(
                     f"No message from Binance for {self.receive_timeout} s"
                 ) from exc
+            if self._stop_event.is_set():
+                continue
             self.last_message_at = datetime.now(UTC)
             await self._dispatch(raw)
-        # Treat a connection that ends without an error as a disconnect too.
-        if not self._stop_event.is_set():
-            raise ConnectionError("Binance stream closed")
 
     async def _dispatch(self, raw: str) -> None:
         event = parse_message(raw, self.allowed_symbols)
