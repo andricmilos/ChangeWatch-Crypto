@@ -15,6 +15,8 @@ def test_default_values():
     assert settings.stale_after_seconds == 15
     assert settings.reconnect_initial_delay == 1.0
     assert settings.reconnect_max_delay == 60.0
+    assert settings.kline_intervals == ["1m", "5m", "15m", "1h"]
+    assert settings.receive_timeout_seconds == 30
 
 
 def test_symbols_are_uppercased_and_stripped():
