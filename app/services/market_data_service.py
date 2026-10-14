@@ -8,6 +8,7 @@ from app.config import Settings
 from app.schemas.market import KlineUpdate, MarketTicker
 from app.services.exchange_client import (
     BinanceStreamClient,
+    ClientStatus,
     build_stream_url,
     to_display_symbol,
 )
@@ -45,6 +46,7 @@ class MarketDataService:
             receive_timeout=settings.receive_timeout_seconds,
             reconnect_initial_delay=settings.reconnect_initial_delay,
             reconnect_max_delay=settings.reconnect_max_delay,
+            on_status_change=self.handle_status,
         )
         self._tickers: dict[str, MarketTicker] = {}
         self._klines: dict[tuple[str, str], KlineUpdate] = {}
@@ -85,6 +87,9 @@ class MarketDataService:
 
         self._klines[key] = kline
         await self._notify({"type": "kline", "data": kline})
+
+    async def handle_status(self, status: ClientStatus) -> None:
+        await self._notify({"type": "status", "data": {"connection_status": status}})
 
     def freshness(self, symbol: str, now: datetime | None = None) -> Freshness:
         last_update_at = self._last_update_at.get(symbol)

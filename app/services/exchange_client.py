@@ -177,6 +177,7 @@ def compute_backoff(attempt: int, initial: float, maximum: float) -> float:
 ClientStatus = Literal["connecting", "connected", "reconnecting", "stopped"]
 TickerCallback = Callable[[MarketTicker], Awaitable[None]]
 KlineCallback = Callable[[KlineUpdate], Awaitable[None]]
+StatusCallback = Callable[[ClientStatus], Awaitable[None]]
 # Returns an async context manager yielding a connection with recv() and close();
 # tests pass a fake one so no real network is used.
 ConnectFactory = Callable[[str], Any]
@@ -202,10 +203,12 @@ class BinanceStreamClient:
         receive_timeout: float = 30,
         reconnect_initial_delay: float = 1.0,
         reconnect_max_delay: float = 60.0,
+        on_status_change: StatusCallback | None = None,
     ) -> None:
         self.url = url
         self.on_ticker = on_ticker
         self.on_kline = on_kline
+        self.on_status_change = on_status_change
         self.connect_factory = connect_factory
         self.allowed_symbols = allowed_symbols
         self.receive_timeout = receive_timeout
@@ -219,13 +222,13 @@ class BinanceStreamClient:
 
     async def run(self) -> None:
         self._stop_event.clear()
-        self.status = "connecting"
+        await self._set_status("connecting")
         attempt = 0
         while not self._stop_event.is_set():
             try:
                 async with self.connect_factory(self.url) as connection:
                     self._connection = connection
-                    self.status = "connected"
+                    await self._set_status("connected")
                     attempt = 0
                     logger.info("Connected to Binance stream")
                     await self._receive_loop(connection)
@@ -240,7 +243,7 @@ class BinanceStreamClient:
 
             if self._stop_event.is_set():
                 break
-            self.status = "reconnecting"
+            await self._set_status("reconnecting")
             delay = compute_backoff(attempt, self.reconnect_initial_delay, self.reconnect_max_delay)
             # Jitter keeps many clients from reconnecting at exactly the same moment.
             delay += random.uniform(0, delay * 0.1)
@@ -248,13 +251,27 @@ class BinanceStreamClient:
             logger.info("Reconnecting to Binance in %.1f s (attempt %d)", delay, attempt)
             await self._sleep_unless_stopped(delay)
 
-        self.status = "stopped"
+        await self._set_status("stopped")
         logger.info("Binance stream client stopped")
 
     async def stop(self) -> None:
         self._stop_event.set()
         if self._connection is not None:
             await self._connection.close()
+
+    async def _set_status(self, status: ClientStatus) -> None:
+        if status == self.status:
+            return
+        self.status = status
+        if self.on_status_change is None:
+            return
+        try:
+            await self.on_status_change(status)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A failing listener must not break the connect/reconnect loop.
+            logger.exception("Error while handling Binance status change")
 
     async def _receive_loop(self, connection: Any) -> None:
         # stop() was called while connecting; leaving the `async with` closes the connection.

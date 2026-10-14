@@ -1,13 +1,20 @@
 from collections.abc import Collection
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
+from fastapi.requests import HTTPConnection
 
 from app.services.market_data_service import MarketDataService
+from app.websocket.manager import ConnectionManager
 
 
-def get_market_service(request: Request) -> MarketDataService:
+# HTTPConnection (not Request) so the same dependencies work in HTTP and WebSocket routes.
+def get_market_service(connection: HTTPConnection) -> MarketDataService:
     # A dependency (not a global) so tests can swap in a fake via app.dependency_overrides.
-    return request.app.state.market_service
+    return connection.app.state.market_service
+
+
+def get_connection_manager(connection: HTTPConnection) -> ConnectionManager:
+    return connection.app.state.connection_manager
 
 
 def normalize_symbol(raw: str, allowed: Collection[str]) -> str:
