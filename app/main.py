@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from app.api.dependencies import get_market_service
 from app.api.routes_market import router as market_router
 from app.config import get_settings
+from app.database import init_db
 from app.services.exchange_client import to_display_symbol
 from app.services.market_data_service import MarketDataService, MarketEvent
 from app.websocket.manager import ConnectionManager
@@ -23,6 +24,7 @@ logging.basicConfig(level=settings.log_level.upper())
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    await init_db()
     service = MarketDataService(get_settings())
     manager = ConnectionManager()
     app.state.market_service = service
