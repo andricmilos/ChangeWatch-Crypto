@@ -27,3 +27,23 @@ class KlineUpdate(BaseModel):
     close: Decimal
     volume: Decimal
     is_closed: bool
+
+
+class MarketView(BaseModel):
+    """One market as the API shows it; numbers stay null until real data arrives."""
+
+    symbol: str
+    display_symbol: str
+    last_price: Decimal | None = None
+    price_change: Decimal | None = None
+    price_change_percent: Decimal | None = None
+    high_24h: Decimal | None = None
+    low_24h: Decimal | None = None
+    volume_24h: Decimal | None = None
+    updated_at: datetime | None = None
+    freshness: str
+
+
+class MarketsResponse(BaseModel):
+    connection_status: str
+    markets: list[MarketView]

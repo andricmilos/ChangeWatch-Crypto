@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.routes_market import router as market_router
 from app.config import get_settings
 from app.services.market_data_service import MarketDataService
 
@@ -21,6 +22,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
+app.include_router(market_router)
 
 
 @app.get("/health")
