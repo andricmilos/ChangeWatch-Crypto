@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ChangeWatch Crypto</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand">ChangeWatch Crypto</h1>
+    <div class="topbar-status">
+      <span id="connection-indicator" class="indicator indicator-connecting">
+        <span class="dot"></span>
+        <span id="connection-label">Povezivanje…</span>
+      </span>
+      <span class="last-update">Poslednje ažuriranje: <span id="last-update">—</span></span>
+    </div>
+  </header>
+
+  <div id="banner-server" class="banner banner-red" role="alert" hidden>
+    Veza sa serverom je prekinuta — prikazane cene nisu aktuelne
+  </div>
+  <div id="banner-exchange" class="banner banner-yellow" role="status" hidden>
+    Veza sa berzom se obnavlja
+  </div>
+
+  <main class="layout">
+    <section class="overview" aria-label="Pregled tržišta">
+      {% for pair in pairs[:5] %}
+      <article class="card" data-symbol="{{ pair.symbol }}">
+        <div class="card-symbol">{{ pair.display_symbol }}</div>
+        <div class="card-price" data-field="last_price">—</div>
+        <div class="card-change" data-field="price_change_percent">—</div>
+      </article>
+      {% endfor %}
+    </section>
+
+    <section class="panel panel-markets">
+      <div class="panel-header">
+        <h2>Tržišta</h2>
+        <input id="search" class="search" type="search" placeholder="Pretraga parova…"
+               autocomplete="off" aria-label="Pretraga parova">
+      </div>
+      <p id="loading" class="loading">Učitavanje cena…</p>
+      <div class="table-wrap">
+        <table class="markets">
+          <thead>
+            <tr>
+              <th>Par</th>
+              <th class="num">Cena</th>
+              <th class="num">24h promena</th>
+              <th class="num">24h %</th>
+              <th class="num">24h max</th>
+              <th class="num">24h min</th>
+              <th class="num">Volumen</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="markets-body">
+            {% for pair in pairs %}
+            <tr data-symbol="{{ pair.symbol }}" data-search="{{ pair.symbol }} {{ pair.display_symbol }}">
+              <td class="pair">{{ pair.display_symbol }}</td>
+              <td class="num" data-field="last_price">—</td>
+              <td class="num" data-field="price_change">—</td>
+              <td class="num" data-field="price_change_percent">—</td>
+              <td class="num" data-field="high_24h">—</td>
+              <td class="num" data-field="low_24h">—</td>
+              <td class="num" data-field="volume_24h">—</td>
+              <td data-field="status"><span class="status status-no-data">Nema podataka</span></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel panel-chart">
+      <h2>Grafikon</h2>
+    </section>
+
+    <section class="panel panel-watchlist">
+      <h2>Watchlist</h2>
+    </section>
+
+    <section class="panel panel-alerts">
+      <h2>Alerti</h2>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
