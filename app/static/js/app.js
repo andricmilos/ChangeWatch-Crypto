@@ -35,6 +35,7 @@ const state = {
   exchangeStatus: null,
   reconnectDelayMs: RECONNECT_INITIAL_DELAY_MS,
   lastUpdateMs: null,
+  selectedSymbol: null,
 };
 
 // ---------- Formatting ----------
@@ -211,6 +212,27 @@ function renderIndicator() {
   }
   elements.indicator.className = `indicator indicator-${kind}`;
   elements.indicatorLabel.textContent = label;
+  renderChartStale();
+}
+
+function renderChartStale() {
+  const exchangeDown = state.exchangeStatus !== null && state.exchangeStatus !== "connected";
+  const stale =
+    state.socketState === "closed" ||
+    exchangeDown ||
+    (state.selectedSymbol !== null && rowStatus(state.selectedSymbol) === "stale");
+  chartPanel.setStale(stale);
+}
+
+// ---------- Chart selection ----------
+
+function selectPair(symbol) {
+  const row = rows.get(symbol);
+  if (!row) return;
+  state.selectedSymbol = symbol;
+  for (const other of rows.values()) other.classList.toggle("is-selected", other === row);
+  chartPanel.select(symbol, row.querySelector(".pair").textContent);
+  renderChartStale();
 }
 
 function setExchangeStatus(status) {
@@ -241,7 +263,7 @@ function handleMessage(message) {
       setExchangeStatus(message.data.connection_status);
       break;
     case "kline":
-      // Used by the chart in a later task.
+      chartPanel.handleKline(message.data);
       break;
     default:
       break;
@@ -290,7 +312,13 @@ function applyFilter() {
 }
 
 elements.search.addEventListener("input", applyFilter);
+for (const [symbol, row] of rows) {
+  row.addEventListener("click", () => selectPair(symbol));
+}
 setInterval(() => {
   for (const symbol of rows.keys()) renderStatus(symbol);
+  renderChartStale();
 }, 1000);
+const firstSymbol = rows.keys().next().value;
+if (firstSymbol !== undefined) selectPair(firstSymbol);
 connect();

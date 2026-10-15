@@ -76,7 +76,27 @@
     </section>
 
     <section class="panel panel-chart">
-      <h2>Grafikon</h2>
+      <div class="panel-header">
+        <h2>Grafikon <span id="chart-symbol" class="chart-symbol">—</span></h2>
+        <div class="chart-controls">
+          <div class="button-group" role="group" aria-label="Interval">
+            <button type="button" class="toggle" data-interval="1m" aria-pressed="true">1m</button>
+            <button type="button" class="toggle" data-interval="5m" aria-pressed="false">5m</button>
+            <button type="button" class="toggle" data-interval="15m" aria-pressed="false">15m</button>
+            <button type="button" class="toggle" data-interval="1h" aria-pressed="false">1h</button>
+          </div>
+          <div class="button-group" role="group" aria-label="Tip grafikona">
+            <button type="button" class="toggle" data-chart-type="candles" aria-pressed="true">Sveće</button>
+            <button type="button" class="toggle" data-chart-type="line" aria-pressed="false">Linija</button>
+          </div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div id="chart"></div>
+        <div id="chart-message" class="chart-message" hidden></div>
+        <div id="chart-stale" class="chart-stale" role="status" hidden>Podaci nisu aktuelni</div>
+      </div>
+      <p class="chart-note">Vreme je prikazano u UTC.</p>
     </section>
 
     <section class="panel panel-watchlist">
@@ -88,7 +108,17 @@
     </section>
   </main>
 
+  <footer class="footer">
+    <p>
+      Grafikoni:
+      <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>.
+      Copyright (c) 2025 TradingView, Inc. https://www.tradingview.com/
+    </p>
+  </footer>
+
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@5.2/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="/static/js/chart.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>
