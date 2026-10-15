@@ -39,6 +39,9 @@
     <section class="panel panel-markets">
       <div class="panel-header">
         <h2>Tržišta</h2>
+        <label class="only-watchlist">
+          <input id="only-watchlist" type="checkbox"> Samo watchlist
+        </label>
         <input id="search" class="search" type="search" placeholder="Pretraga parova…"
                autocomplete="off" aria-label="Pretraga parova">
       </div>
@@ -47,6 +50,7 @@
         <table class="markets">
           <thead>
             <tr>
+              <th class="star-cell"><span class="visually-hidden">Watchlist</span></th>
               <th>Par</th>
               <th class="num">Cena</th>
               <th class="num">24h promena</th>
@@ -60,6 +64,10 @@
           <tbody id="markets-body">
             {% for pair in pairs %}
             <tr data-symbol="{{ pair.symbol }}" data-search="{{ pair.symbol }} {{ pair.display_symbol }}">
+              <td class="star-cell">
+                <button type="button" class="star" aria-pressed="false"
+                        aria-label="Dodaj {{ pair.display_symbol }} u watchlist">☆</button>
+              </td>
               <td class="pair">{{ pair.display_symbol }}</td>
               <td class="num" data-field="last_price">—</td>
               <td class="num" data-field="price_change">—</td>
@@ -101,6 +109,9 @@
 
     <section class="panel panel-watchlist">
       <h2>Watchlist</h2>
+      <p id="watchlist-error" class="watchlist-error" role="alert" hidden></p>
+      <p id="watchlist-empty" class="watchlist-empty">Dodaj par klikom na ☆</p>
+      <ul id="watchlist" class="watchlist"></ul>
     </section>
 
     <section class="panel panel-alerts">

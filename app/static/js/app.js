@@ -26,6 +26,10 @@ const elements = {
   exchangeBanner: document.getElementById("banner-exchange"),
   loading: document.getElementById("loading"),
   search: document.getElementById("search"),
+  onlyWatchlist: document.getElementById("only-watchlist"),
+  watchlist: document.getElementById("watchlist"),
+  watchlistEmpty: document.getElementById("watchlist-empty"),
+  watchlistError: document.getElementById("watchlist-error"),
 };
 
 const state = {
@@ -36,6 +40,10 @@ const state = {
   reconnectDelayMs: RECONNECT_INITIAL_DELAY_MS,
   lastUpdateMs: null,
   selectedSymbol: null,
+  // Symbols in the order they were added; a Set keeps insertion order.
+  watchlist: new Set(),
+  // Symbols with a POST/DELETE in flight, so a double click sends only one request.
+  pendingStars: new Set(),
 };
 
 // ---------- Formatting ----------
@@ -156,6 +164,7 @@ function renderRow(market) {
     if (priceChanged && cardPrice) flash(cardPrice);
   }
 
+  renderWatchlistPrice(market.symbol);
   renderStatus(market.symbol);
   updateLastUpdate(market.updated_at);
 }
@@ -185,6 +194,7 @@ function renderStatus(symbol) {
   const stale = status === "stale";
   row.classList.toggle("is-stale", stale);
   cards.get(symbol)?.classList.toggle("is-stale", stale);
+  watchlistItem(symbol)?.classList.toggle("is-stale", stale);
 }
 
 function markAllStale() {
@@ -241,6 +251,129 @@ function setExchangeStatus(status) {
   // Without a live exchange connection no price on screen is current.
   if (status !== "connected") markAllStale();
   renderIndicator();
+}
+
+// ---------- Watchlist ----------
+
+function displaySymbol(symbol) {
+  return rows.get(symbol).querySelector(".pair").textContent;
+}
+
+function watchlistItem(symbol) {
+  return elements.watchlist.querySelector(`[data-symbol="${symbol}"]`);
+}
+
+function renderWatchlistPrice(symbol) {
+  const item = watchlistItem(symbol);
+  const market = state.markets.get(symbol)?.market;
+  if (!item || !market) return;
+  const priceCell = setCell(item, "last_price", formatPrice(market.last_price));
+  setCell(
+    item,
+    "price_change_percent",
+    formatPercent(market.price_change_percent),
+    market.price_change_percent,
+  );
+  if (priceCell && item.dataset.rendered === "true") flash(priceCell);
+  item.dataset.rendered = "true";
+}
+
+function createWatchlistItem(symbol) {
+  const item = document.createElement("li");
+  item.className = "watchlist-item";
+  item.dataset.symbol = symbol;
+  for (const [className, field] of [
+    ["pair", null],
+    ["num", "last_price"],
+    ["num", "price_change_percent"],
+  ]) {
+    const cell = document.createElement("span");
+    cell.className = className;
+    if (field === null) {
+      cell.textContent = displaySymbol(symbol);
+    } else {
+      cell.dataset.field = field;
+      cell.textContent = MISSING;
+    }
+    item.append(cell);
+  }
+  return item;
+}
+
+function renderWatchlist() {
+  for (const [symbol, row] of rows) {
+    const watched = state.watchlist.has(symbol);
+    const star = row.querySelector(".star");
+    star.textContent = watched ? "★" : "☆";
+    star.setAttribute("aria-pressed", String(watched));
+    star.setAttribute(
+      "aria-label",
+      `${watched ? "Ukloni" : "Dodaj"} ${displaySymbol(symbol)} ${watched ? "iz" : "u"} watchlist`,
+    );
+    star.disabled = state.pendingStars.has(symbol);
+    row.classList.toggle("is-watched", watched);
+  }
+
+  elements.watchlist.replaceChildren(
+    ...[...state.watchlist].filter((symbol) => rows.has(symbol)).map(createWatchlistItem),
+  );
+  for (const symbol of state.watchlist) {
+    renderWatchlistPrice(symbol);
+    watchlistItem(symbol)?.classList.toggle("is-stale", rowStatus(symbol) === "stale");
+  }
+  elements.watchlistEmpty.hidden = state.watchlist.size > 0;
+  applyFilter();
+}
+
+function showWatchlistError(message) {
+  elements.watchlistError.textContent = message;
+  elements.watchlistError.hidden = message === null;
+}
+
+async function loadWatchlist() {
+  try {
+    const response = await fetch("/api/watchlist");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const items = await response.json();
+    state.watchlist = new Set(items.map((item) => item.symbol));
+    showWatchlistError(null);
+  } catch (error) {
+    console.error("Could not load the watchlist", error);
+    showWatchlistError("Watchlist trenutno nije dostupna.");
+  }
+  renderWatchlist();
+}
+
+async function toggleWatch(symbol) {
+  if (state.pendingStars.has(symbol)) return;
+  state.pendingStars.add(symbol);
+  renderWatchlist();
+
+  const watched = state.watchlist.has(symbol);
+  try {
+    const response = watched
+      ? await fetch(`/api/watchlist/${encodeURIComponent(symbol)}`, { method: "DELETE" })
+      : await fetch("/api/watchlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol }),
+        });
+    // 409 / 404 mean the server is already in the state we wanted (e.g. another tab).
+    if (watched && (response.ok || response.status === 404)) {
+      state.watchlist.delete(symbol);
+    } else if (!watched && (response.ok || response.status === 409)) {
+      state.watchlist.add(symbol);
+    } else {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    showWatchlistError(null);
+  } catch (error) {
+    console.error("Could not update the watchlist", error);
+    showWatchlistError("Izmena watchlist-e nije uspela. Pokušaj ponovo.");
+  } finally {
+    state.pendingStars.delete(symbol);
+    renderWatchlist();
+  }
 }
 
 // ---------- WebSocket ----------
@@ -306,14 +439,22 @@ function connect() {
 
 function applyFilter() {
   const query = elements.search.value.trim().toLowerCase();
-  for (const row of rows.values()) {
-    row.hidden = query !== "" && !row.dataset.search.toLowerCase().includes(query);
+  const onlyWatchlist = elements.onlyWatchlist.checked;
+  for (const [symbol, row] of rows) {
+    const matchesQuery = query === "" || row.dataset.search.toLowerCase().includes(query);
+    row.hidden = !matchesQuery || (onlyWatchlist && !state.watchlist.has(symbol));
   }
 }
 
 elements.search.addEventListener("input", applyFilter);
+elements.onlyWatchlist.addEventListener("change", applyFilter);
 for (const [symbol, row] of rows) {
   row.addEventListener("click", () => selectPair(symbol));
+  row.querySelector(".star").addEventListener("click", (event) => {
+    // The star must not also open the chart for this row.
+    event.stopPropagation();
+    toggleWatch(symbol);
+  });
 }
 setInterval(() => {
   for (const symbol of rows.keys()) renderStatus(symbol);
@@ -321,4 +462,5 @@ setInterval(() => {
 }, 1000);
 const firstSymbol = rows.keys().next().value;
 if (firstSymbol !== undefined) selectPair(firstSymbol);
+loadWatchlist();
 connect();

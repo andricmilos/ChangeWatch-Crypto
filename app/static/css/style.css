@@ -403,3 +403,88 @@ h2 {
     width: 100%;
   }
 }
+
+/* Watchlist */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.markets .star-cell {
+  width: 1%;
+  padding-right: 0;
+}
+
+.star {
+  padding: 0 4px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.star[aria-pressed="true"] {
+  color: var(--yellow);
+}
+
+.star:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+#markets-body tr.is-watched .pair {
+  color: var(--yellow);
+}
+
+.only-watchlist {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.watchlist {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.watchlist-item {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.watchlist-item .pair {
+  flex: 1;
+}
+
+.watchlist-item .num {
+  font-variant-numeric: tabular-nums;
+}
+
+.watchlist-empty {
+  margin: 12px 0 0;
+  color: var(--muted);
+}
+
+.watchlist-error {
+  margin: 12px 0 0;
+  color: var(--red);
+}
+
+.watchlist-empty[hidden],
+.watchlist-error[hidden] {
+  display: none;
+}

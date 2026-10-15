@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.api.dependencies import get_market_service
 from app.api.routes_market import router as market_router
+from app.api.routes_watchlist import router as watchlist_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.services.candle_service import CandleService
@@ -47,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
 app.include_router(market_router)
+app.include_router(watchlist_router)
 app.include_router(websocket_router)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
