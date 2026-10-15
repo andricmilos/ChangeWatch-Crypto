@@ -4,14 +4,16 @@ import json
 import logging
 import random
 import sys
+import time
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
+import httpx
 from websockets.asyncio.client import connect
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.schemas.market import KlineUpdate, MarketTicker
 
 logger = logging.getLogger(__name__)
@@ -26,8 +28,16 @@ def to_display_symbol(symbol: str) -> str:
     return symbol
 
 
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+
+
 def ms_to_datetime(ms: int) -> datetime:
     return datetime.fromtimestamp(ms / 1000, tz=UTC)
+
+
+def datetime_to_ms(value: datetime) -> int:
+    # Integer timedelta division instead of timestamp() * 1000, which can round 999 down to 998.
+    return (value - EPOCH) // timedelta(milliseconds=1)
 
 
 def _to_decimal(value: Any) -> Decimal | None:
@@ -172,6 +182,116 @@ def build_stream_url(base_url: str, symbols: list[str], intervals: list[str]) ->
 
 def compute_backoff(attempt: int, initial: float, maximum: float) -> float:
     return min(initial * 2**attempt, maximum)
+
+
+class ExchangeUnavailableError(Exception):
+    """Binance REST could not give a usable answer (network error, 5xx or rate limit)."""
+
+
+def parse_rest_kline(
+    row: Any, symbol: str, interval: str, is_closed: bool
+) -> KlineUpdate | None:
+    """Convert one /api/v3/klines row; the first seven fields are t, o, h, l, c, v, T."""
+    if not isinstance(row, list) or len(row) < 7:
+        logger.warning("Ignoring invalid REST kline row for %s", symbol)
+        return None
+
+    open_time = _to_datetime(row[0])
+    close_time = _to_datetime(row[6])
+    prices = [_to_positive_decimal(value) for value in row[1:5]]
+    volume = _to_decimal(row[5])
+    if (
+        open_time is None
+        or close_time is None
+        or any(price is None for price in prices)
+        or volume is None
+        or volume < 0
+    ):
+        logger.warning("Ignoring invalid REST kline row for %s", symbol)
+        return None
+
+    open_price, high, low, close = prices
+    return KlineUpdate(
+        symbol=symbol,
+        interval=interval,
+        open_time=open_time,
+        close_time=close_time,
+        open=open_price,
+        high=high,
+        low=low,
+        close=close,
+        volume=volume,
+        is_closed=is_closed,
+    )
+
+
+class BinanceRestClient:
+    """Historical candles from Binance REST (public market data endpoint only)."""
+
+    RATE_LIMIT_STATUSES = (418, 429)
+    DEFAULT_RATE_LIMIT_PAUSE = 60.0
+
+    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
+        # Tests pass an httpx.MockTransport, so no request ever leaves the machine.
+        self.http = httpx.AsyncClient(
+            base_url=settings.binance_rest_url, timeout=10, transport=transport
+        )
+        self._paused_until = 0.0
+
+    async def close(self) -> None:
+        await self.http.aclose()
+
+    async def get_klines(self, symbol: str, interval: str, limit: int) -> list[KlineUpdate]:
+        if time.monotonic() < self._paused_until:
+            # After 429/418 Binance bans clients that keep retrying, so wait out the pause.
+            raise ExchangeUnavailableError("Binance rate limit pause is still active")
+
+        try:
+            response = await self.http.get(
+                "/api/v3/klines", params={"symbol": symbol, "interval": interval, "limit": limit}
+            )
+        except httpx.HTTPError as exc:
+            raise ExchangeUnavailableError(f"Binance REST request failed: {exc!r}") from exc
+
+        if response.status_code in self.RATE_LIMIT_STATUSES:
+            pause = self._retry_after(response)
+            self._paused_until = time.monotonic() + pause
+            logger.warning(
+                "Binance REST rate limit hit (HTTP %d); pausing requests for %.0f s",
+                response.status_code,
+                pause,
+            )
+            raise ExchangeUnavailableError(f"Binance rate limit (HTTP {response.status_code})")
+        if response.status_code >= 500:
+            raise ExchangeUnavailableError(f"Binance REST returned HTTP {response.status_code}")
+        if response.status_code != 200:
+            logger.error(
+                "Unexpected Binance REST response HTTP %d: %s",
+                response.status_code,
+                response.text[:200],
+            )
+            raise ExchangeUnavailableError(f"Binance REST returned HTTP {response.status_code}")
+
+        try:
+            rows = response.json()
+        except ValueError as exc:
+            raise ExchangeUnavailableError("Binance REST returned invalid JSON") from exc
+        if not isinstance(rows, list):
+            raise ExchangeUnavailableError("Binance REST returned an unexpected payload")
+
+        last_index = len(rows) - 1
+        # The newest candle is still being built, every earlier one is final.
+        candles = [
+            parse_rest_kline(row, symbol, interval, is_closed=index != last_index)
+            for index, row in enumerate(rows)
+        ]
+        return [candle for candle in candles if candle is not None]
+
+    def _retry_after(self, response: httpx.Response) -> float:
+        try:
+            return max(float(response.headers["Retry-After"]), 1.0)
+        except (KeyError, ValueError):
+            return self.DEFAULT_RATE_LIMIT_PAUSE
 
 
 ClientStatus = Literal["connecting", "connected", "reconnecting", "stopped"]

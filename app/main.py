@@ -11,8 +11,9 @@ from fastapi.templating import Jinja2Templates
 from app.api.dependencies import get_market_service
 from app.api.routes_market import router as market_router
 from app.config import get_settings
-from app.database import init_db
-from app.services.exchange_client import to_display_symbol
+from app.database import SessionLocal, init_db
+from app.services.candle_service import CandleService
+from app.services.exchange_client import BinanceRestClient, to_display_symbol
 from app.services.market_data_service import MarketDataService, MarketEvent
 from app.websocket.manager import ConnectionManager
 from app.websocket.routes import market_event_message
@@ -27,16 +28,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
     service = MarketDataService(get_settings())
     manager = ConnectionManager()
+    rest_client = BinanceRestClient(get_settings())
+    candle_service = CandleService(rest_client, SessionLocal)
     app.state.market_service = service
     app.state.connection_manager = manager
+    app.state.candle_service = candle_service
 
     async def broadcast_market_event(event: MarketEvent) -> None:
         await manager.broadcast(market_event_message(event, service))
 
     service.subscribe(broadcast_market_event)
+    service.subscribe(candle_service.handle_event)
     await service.start()
     yield
     await service.stop()
+    await rest_client.close()
 
 
 app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)

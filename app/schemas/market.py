@@ -44,6 +44,17 @@ class MarketView(BaseModel):
     freshness: str
 
 
+class CandleOut(BaseModel):
+    """One candle for the chart; time is in seconds because Lightweight Charts expects that."""
+
+    time: int
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: Decimal
+
+
 class MarketsResponse(BaseModel):
     connection_status: str
     markets: list[MarketView]

@@ -3,6 +3,7 @@ from collections.abc import Collection
 from fastapi import HTTPException
 from fastapi.requests import HTTPConnection
 
+from app.services.candle_service import CandleService
 from app.services.market_data_service import MarketDataService
 from app.websocket.manager import ConnectionManager
 
@@ -11,6 +12,10 @@ from app.websocket.manager import ConnectionManager
 def get_market_service(connection: HTTPConnection) -> MarketDataService:
     # A dependency (not a global) so tests can swap in a fake via app.dependency_overrides.
     return connection.app.state.market_service
+
+
+def get_candle_service(connection: HTTPConnection) -> CandleService:
+    return connection.app.state.candle_service
 
 
 def get_connection_manager(connection: HTTPConnection) -> ConnectionManager:
