@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -8,7 +9,11 @@ from app.schemas.market import MarketsResponse
 from app.services.market_data_service import MarketDataService, MarketEvent
 from app.websocket.manager import ConnectionManager
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+MAX_BROWSER_MESSAGE_BYTES = 1024
 
 MarketService = Annotated[MarketDataService, Depends(get_market_service)]
 Manager = Annotated[ConnectionManager, Depends(get_connection_manager)]
@@ -37,11 +42,26 @@ def market_event_message(event: MarketEvent, service: MarketDataService) -> dict
 
 @router.websocket("/ws/market")
 async def market_websocket(websocket: WebSocket, service: MarketService, manager: Manager) -> None:
-    await manager.connect(websocket)
+    if not await manager.connect(websocket):
+        return
     try:
         await websocket.send_json(snapshot_message(service))
         while True:
-            # Browsers only listen; anything they send is ignored.
-            await websocket.receive_text()
+            # receive() instead of receive_text(): a binary frame must not crash the loop.
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            if browser_message_size(message) > MAX_BROWSER_MESSAGE_BYTES:
+                logger.debug("Ignoring browser message over %d bytes", MAX_BROWSER_MESSAGE_BYTES)
+                continue
+            # Browsers only listen; nothing they send has a meaning yet, so it is ignored.
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(websocket)
+
+
+def browser_message_size(message: dict[str, Any]) -> int:
+    if message.get("bytes") is not None:
+        return len(message["bytes"])
+    return len((message.get("text") or "").encode())

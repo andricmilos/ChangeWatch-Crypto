@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.dependencies import get_candle_service, get_market_service, normalize_symbol
 from app.schemas.market import CandleOut, MarketsResponse, MarketView
 from app.services.candle_service import CandleService
-from app.services.exchange_client import ExchangeUnavailableError, datetime_to_ms
+from app.services.exchange_client import datetime_to_ms
 from app.services.market_data_service import MarketDataService
 
 router = APIRouter(prefix="/api/markets", tags=["markets"])
@@ -69,11 +69,8 @@ async def get_candles(
             detail=f"Unsupported interval {interval!r}; use one of {allowed_intervals}",
         )
 
-    try:
-        candles = await candle_service.get_candles(normalized, interval, limit)
-    except ExchangeUnavailableError as exc:
-        raise HTTPException(status_code=503, detail="Exchange data is unavailable") from exc
-
+    # ExchangeUnavailableError becomes a 503 in the global handler in main.py.
+    candles = await candle_service.get_candles(normalized, interval, limit)
     return [
         CandleOut(
             time=datetime_to_ms(candle.open_time) // 1000,

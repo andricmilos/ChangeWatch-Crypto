@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
 from app.api.dependencies import get_alert_service
+from app.api.rate_limit import write_limiter
 from app.models import PriceAlert
 from app.schemas.alert import AlertCreate, AlertOut, AlertUpdate
 from app.services.alert_service import AlertService
@@ -18,6 +19,10 @@ templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["display_symbol"] = to_display_symbol
 
 Alerts = Annotated[AlertService, Depends(get_alert_service)]
+RateLimited = [Depends(write_limiter)]
+
+MAX_ACTIVE_ALERTS = 50
+TOO_MANY_ALERTS = f"Najviše {MAX_ACTIVE_ALERTS} aktivnih alerta; obriši ili isključi neki"
 
 
 @router.get("", response_model=list[AlertOut])
@@ -25,12 +30,14 @@ async def list_alerts(alert_service: Alerts, active: bool | None = None) -> list
     return await alert_service.list_alerts(active)
 
 
-@router.post("", response_model=AlertOut, status_code=201)
+@router.post("", response_model=AlertOut, status_code=201, dependencies=RateLimited)
 async def create_alert(payload: AlertCreate, alert_service: Alerts) -> PriceAlert:
+    if alert_service.active_count() >= MAX_ACTIVE_ALERTS:
+        raise HTTPException(status_code=400, detail=TOO_MANY_ALERTS)
     return await alert_service.create(payload)
 
 
-@router.patch("/{alert_id}", response_model=AlertOut)
+@router.patch("/{alert_id}", response_model=AlertOut, dependencies=RateLimited)
 async def update_alert(alert_id: int, payload: AlertUpdate, alert_service: Alerts) -> PriceAlert:
     alert = await alert_service.update(alert_id, payload)
     if alert is None:
@@ -38,7 +45,7 @@ async def update_alert(alert_id: int, payload: AlertUpdate, alert_service: Alert
     return alert
 
 
-@router.delete("/{alert_id}", status_code=204)
+@router.delete("/{alert_id}", status_code=204, dependencies=RateLimited)
 async def delete_alert(alert_id: int, alert_service: Alerts) -> Response:
     if not await alert_service.delete(alert_id):
         raise HTTPException(status_code=404, detail="Alert ne postoji")
@@ -65,7 +72,7 @@ async def alerts_partial(request: Request, alert_service: Alerts) -> HTMLRespons
     return await render_alerts_list(request, alert_service)
 
 
-@partials_router.post("/alerts", response_class=HTMLResponse)
+@partials_router.post("/alerts", response_class=HTMLResponse, dependencies=RateLimited)
 async def create_alert_partial(
     request: Request,
     alert_service: Alerts,
@@ -84,5 +91,7 @@ async def create_alert_partial(
             error="Neispravan alert: izaberi par i uslov i unesi cenu veću od 0 "
             "(najviše 8 decimala).",
         )
+    if alert_service.active_count() >= MAX_ACTIVE_ALERTS:
+        return await render_alerts_list(request, alert_service, error=TOO_MANY_ALERTS)
     await alert_service.create(payload)
     return await render_alerts_list(request, alert_service)

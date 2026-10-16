@@ -49,6 +49,9 @@ class AlertService:
     def active_alerts(self, symbol: str) -> list[PriceAlert]:
         return list(self._active.get(symbol, []))
 
+    def active_count(self) -> int:
+        return sum(len(alerts) for alerts in self._active.values())
+
     async def list_alerts(self, active: bool | None = None) -> list[PriceAlert]:
         query = select(PriceAlert).order_by(PriceAlert.id.desc())
         if active is not None:

@@ -1,10 +1,11 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -17,7 +18,11 @@ from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.services.alert_service import AlertService
 from app.services.candle_service import CandleService
-from app.services.exchange_client import BinanceRestClient, to_display_symbol
+from app.services.exchange_client import (
+    BinanceRestClient,
+    ExchangeUnavailableError,
+    to_display_symbol,
+)
 from app.services.market_data_service import MarketDataService, MarketEvent
 from app.websocket.manager import ConnectionManager
 from app.websocket.routes import market_event_message
@@ -25,6 +30,7 @@ from app.websocket.routes import router as websocket_router
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level.upper())
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -59,6 +65,23 @@ app.include_router(watchlist_router)
 app.include_router(alerts_router)
 app.include_router(alerts_partials_router)
 app.include_router(websocket_router)
+
+
+@app.exception_handler(ExchangeUnavailableError)
+async def exchange_unavailable_handler(
+    request: Request, exc: ExchangeUnavailableError
+) -> JSONResponse:
+    logger.warning("Exchange unavailable on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=503, content={"detail": "Berza trenutno nije dostupna"})
+
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # The full trace goes to the log only; the response must not reveal code or paths.
+    logger.error("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Interna greška"})
+
+
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 templates = Jinja2Templates(directory="app/templates")
@@ -77,5 +100,16 @@ async def dashboard(request: Request, service: MarketService) -> HTMLResponse:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health(service: MarketService) -> dict[str, Any]:
+    client = service.client
+    seconds_since_last_message = None
+    if client.last_message_at is not None:
+        age = datetime.now(UTC) - client.last_message_at
+        seconds_since_last_message = round(age.total_seconds(), 1)
+    # Always HTTP 200: the deploy platform restarts unhealthy containers, and a restart
+    # does not fix a Binance outage. "degraded" says the server runs without live data.
+    return {
+        "status": "ok" if client.status == "connected" else "degraded",
+        "exchange_connection": client.status,
+        "seconds_since_last_message": seconds_since_last_message,
+    }
