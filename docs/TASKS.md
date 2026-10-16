@@ -204,7 +204,7 @@ def test_health_returns_ok():
 app_env: str = "development"
 log_level: str = "INFO"
 database_url: str = "sqlite+aiosqlite:///./data/changewatch.db"
-supported_symbols: list[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+supported_symbols: list[str] = ["BTCEUR", "ETHEUR", "SOLEUR", "BNBEUR", "ADAEUR"]
 binance_ws_url: str = "wss://data-stream.binance.vision"
 binance_rest_url: str = "https://data-api.binance.vision"
 stale_after_seconds: int = 15
@@ -220,7 +220,7 @@ reconnect_max_delay: float = 60.0
 APP_ENV=development
 LOG_LEVEL=INFO
 DATABASE_URL=sqlite+aiosqlite:///./data/changewatch.db
-SUPPORTED_SYMBOLS=["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","ADAUSDT"]
+SUPPORTED_SYMBOLS=["BTCEUR","ETHEUR","SOLEUR","BNBEUR","ADAEUR"]
 BINANCE_WS_URL=wss://data-stream.binance.vision
 BINANCE_REST_URL=https://data-api.binance.vision
 STALE_AFTER_SECONDS=15
@@ -228,7 +228,7 @@ STALE_AFTER_SECONDS=15
 
 6. Kopiraj ga u pravi `.env`: `cp .env.example .env`. `.env` ostaje van git-a.
 7. U `app/main.py` podesi logovanje na osnovu `log_level` (`logging.basicConfig`).
-8. Napiši `tests/test_config.py`: podrazumevane vrednosti (napravi `Settings(_env_file=None)`), pretvaranje `"btcusdt "` u `"BTCUSDT"`, i greška za praznu listu.
+8. Napiši `tests/test_config.py`: podrazumevane vrednosti (napravi `Settings(_env_file=None)`), pretvaranje `"btceur "` u `"BTCEUR"`, i greška za praznu listu.
 
 **Fajlovi:** `app/config.py`, `app/main.py`, `.env.example`, `.env`, `tests/test_config.py`.
 
@@ -246,10 +246,10 @@ STALE_AFTER_SECONDS=15
 
 **Koraci**
 
-1. U `app/schemas/market.py` napravi model `MarketTicker` sa poljima: `symbol` (`BTCUSDT`), `display_symbol` (`BTC/USDT`), `last_price: Decimal`, `price_change`, `price_change_percent`, `high_24h`, `low_24h`, `volume_24h` (sva `Decimal | None`) i `event_time: datetime` (UTC).
+1. U `app/schemas/market.py` napravi model `MarketTicker` sa poljima: `symbol` (`BTCEUR`), `display_symbol` (`BTC/EUR`), `last_price: Decimal`, `price_change`, `price_change_percent`, `high_24h`, `low_24h`, `volume_24h` (sva `Decimal | None`) i `event_time: datetime` (UTC).
 2. U istom fajlu napravi `KlineUpdate`: `symbol`, `interval`, `open_time`, `close_time`, `open`, `high`, `low`, `close`, `volume` i `is_closed: bool`.
 3. U `app/services/exchange_client.py` napiši funkcije:
-   - `to_display_symbol("BTCUSDT") -> "BTC/USDT"`.
+   - `to_display_symbol("BTCEUR") -> "BTC/EUR"`.
    - `ms_to_datetime(ms: int) -> datetime` (Binance vreme je u milisekundama, UTC).
    - `parse_ticker(data: dict) -> MarketTicker | None` za `24hrTicker` poruke. Polja: `s` simbol, `c` poslednja cena, `p` promena, `P` promena u %, `h` i `l` maksimum i minimum, `v` volumen, `E` vreme događaja.
    - `parse_kline(data: dict) -> KlineUpdate | None` za `kline` poruke. Podaci su u `data["k"]`: `t`, `T`, `i`, `o`, `h`, `l`, `c`, `v`, `x`.
@@ -270,7 +270,7 @@ STALE_AFTER_SECONDS=15
 Primer ticker poruke za testove (skraćen oblik prave Binance poruke):
 
 ```json
-{"stream": "btcusdt@ticker", "data": {"e": "24hrTicker", "E": 1760380800000, "s": "BTCUSDT", "p": "-512.10", "P": "-0.45", "c": "113250.55", "h": "114900.00", "l": "112600.10", "v": "18234.551"}}
+{"stream": "btceur@ticker", "data": {"e": "24hrTicker", "E": 1760380800000, "s": "BTCEUR", "p": "-440.10", "P": "-0.60", "c": "72416.85", "h": "73350.00", "l": "71820.10", "v": "412.551"}}
 ```
 
 **Fajlovi:** `app/schemas/market.py`, `app/services/exchange_client.py`, `tests/test_market_data.py`.
@@ -290,7 +290,7 @@ Primer ticker poruke za testove (skraćen oblik prave Binance poruke):
 **Koraci**
 
 1. U `Settings` (Task 2) dodaj `kline_intervals: list[str] = ["1m", "5m", "15m", "1h"]` i `receive_timeout_seconds: int = 30`.
-2. U `exchange_client.py` napiši funkciju `build_stream_url(base_url, symbols, intervals)`. Ona pravi kombinovani URL, na primer `wss://data-stream.binance.vision/stream?streams=btcusdt@ticker/btcusdt@kline_1m/...`. Simboli moraju biti malim slovima. Za 5 parova i 4 intervala to je 25 tokova kroz jednu vezu.
+2. U `exchange_client.py` napiši funkciju `build_stream_url(base_url, symbols, intervals)`. Ona pravi kombinovani URL, na primer `wss://data-stream.binance.vision/stream?streams=btceur@ticker/btceur@kline_1m/...`. Simboli moraju biti malim slovima. Za 5 parova i 4 intervala to je 25 tokova kroz jednu vezu.
 3. Napiši čistu funkciju `compute_backoff(attempt, initial, maximum) -> float` koja vraća `min(initial * 2 ** attempt, maximum)`. Na to dodaj malo nasumičnog „jitter-a” (do 10%) u samom klijentu.
 4. Napravi klasu `BinanceStreamClient`:
    - Konstruktor prima URL, callback `on_ticker`, callback `on_kline` i opcioni `connect_factory` (podrazumevano `websockets.asyncio.client.connect`). Fabrika postoji da bi testovi mogli da ubace lažnu vezu.
@@ -318,7 +318,7 @@ if __name__ == "__main__":
 
 **Gotovo kada**
 
-- [ ] `python -m app.services.exchange_client` ispisuje prave BTC/USDT i ETH/USDT cene.
+- [ ] `python -m app.services.exchange_client` ispisuje prave BTC/EUR i ETH/EUR cene.
 - [ ] Kad isključiš Wi-Fi, log pokazuje pokušaje sa rastućim pauzama; kad ga uključiš, cene se vraćaju same.
 - [ ] Testovi prolaze bez interneta.
 
@@ -337,7 +337,7 @@ if __name__ == "__main__":
    - `self._last_update_at: dict[str, datetime]` — kada je stigla poslednja poruka.
 3. `handle_ticker(ticker)`: ako je `event_time` stariji od onog koji već imaš, ignoriši poruku. Ako su cena i 24h podaci isti kao prethodni, samo osveži `last_update_at` i ne obaveštavaj nikoga. U suprotnom sačuvaj i obavesti pretplatnike.
 4. Pretplatnici: metoda `subscribe(callback)`, gde je callback `async` funkcija koja prima događaj (`{"type": "ticker", ...}` ili `{"type": "kline", ...}`). Ako jedan pretplatnik baci izuzetak, zapiši ga u log i nastavi sa ostalima. Ovde će se kasnije prijaviti browser broadcast (Task 7), čuvanje sveća (Task 10) i alerti (Task 13).
-5. Svežina: metoda `freshness(symbol, now=None)` vraća `"live"`, `"stale"` ili `"no_data"`. Podatak je `stale` ako je stariji od `stale_after_seconds` ili ako klijent nije `connected`. Parametar `now` postoji zbog testova.
+5. Svežina: metoda `freshness(symbol, now=None)` vraća `"live"`, `"stale"` ili `"no_data"`. Podatak je `stale` ako klijent nije `connected` ili ako veza nije primila nijednu poruku (sa bilo kog toka, `client.last_message_at`) duže od `stale_after_seconds`. Ne gleda se poslednja poruka za sam par: parovi sa malo trgovina (npr. ADAEUR) mogu minutima da nemaju poruku, a cena im je i dalje aktuelna. Parametar `now` postoji zbog testova.
 6. `snapshot()` vraća listu svih parova iz allowlist-e, sa poslednjim tickerom (ili `None`) i svežinom, plus `connection_status` klijenta.
 7. `start()` pokreće `client.run()` kao `asyncio.create_task`; `stop()` zove `client.stop()` i čeka da se task završi.
 8. U `app/main.py` dodaj `lifespan` funkciju:
@@ -375,12 +375,12 @@ app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
 1. U `app/schemas/market.py` dodaj izlazne modele:
    - `MarketView`: `symbol`, `display_symbol`, `last_price`, `price_change`, `price_change_percent`, `high_24h`, `low_24h`, `volume_24h` (sve može biti `null` dok nema podataka), `updated_at` i `freshness`.
    - `MarketsResponse`: `connection_status` i `markets: list[MarketView]`.
-   - Pydantic u JSON-u šalje `Decimal` kao string (`"113250.55"`), pa nema gubitka preciznosti.
+   - Pydantic u JSON-u šalje `Decimal` kao string (`"72416.85"`), pa nema gubitka preciznosti.
 2. Napravi dependency `get_market_service(request: Request)` koja vraća `request.app.state.market_service`. Stavi je u `app/api/dependencies.py` (novi fajl).
-3. Napravi funkciju `normalize_symbol(raw, allowed)`: prihvata `btcusdt`, `BTC-USDT` i `BTC/USDT`, vraća `BTCUSDT`, a za simbol van allowlist-e baca `HTTPException(404)`.
+3. Napravi funkciju `normalize_symbol(raw, allowed)`: prihvata `btceur`, `BTC-EUR` i `BTC/EUR`, vraća `BTCEUR`, a za simbol van allowlist-e baca `HTTPException(404)`.
 4. U `app/api/routes_market.py` napravi `APIRouter(prefix="/api/markets", tags=["markets"])` sa dve rute iz specifikacije. Ako za par još nema podataka, vrati ga sa `last_price: null` i `freshness: "no_data"`, nikad sa 0.
 5. Uključi router u `main.py` sa `app.include_router(...)`.
-6. Testovi u `tests/test_api_markets.py`: napravi lažni servis sa unapred upisanim tickerom i zameni pravi preko `app.dependency_overrides[get_market_service]`. Proveri listu, jedan par, mala slova i `BTC-USDT`, 404 za `DOGEUSDT`, i `null` cenu bez podataka.
+6. Testovi u `tests/test_api_markets.py`: napravi lažni servis sa unapred upisanim tickerom i zameni pravi preko `app.dependency_overrides[get_market_service]`. Proveri listu, jedan par, mala slova i `BTC-EUR`, 404 za `DOGEEUR`, i `null` cenu bez podataka.
 
 **Fajlovi:** `app/schemas/market.py`, `app/api/dependencies.py`, `app/api/routes_market.py`, `app/main.py`, `tests/test_api_markets.py`.
 
@@ -388,7 +388,7 @@ app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
 
 - [ ] `http://127.0.0.1:8000/api/markets` prikazuje 5 parova sa pravim cenama.
 - [ ] Cene u JSON-u su stringovi, a `freshness` je `live`.
-- [ ] `/api/markets/DOGEUSDT` vraća 404.
+- [ ] `/api/markets/DOGEEUR` vraća 404.
 - [ ] Testovi prolaze bez pokretanja prave Binance veze.
 
 **Zašto:** dependency (`Depends`) omogućava da testovi zamene pravi servis lažnim. Tako testovi rade bez interneta, kako specifikacija traži.
@@ -460,7 +460,7 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));
    - `renderRow(market)` koji ažurira samo jedan red, ne celu tabelu;
    - zelenu klasu za pozitivnu i crvenu za negativnu promenu, i kratko (600 ms) blago isticanje ćelije kad se cena promeni;
    - filter: pri kucanju u pretragu sakrij redove koji ne sadrže tekst;
-   - tajmer na 1 s koji red bez ažuriranja duže od 15 s posivi i obeleži „Zastarelo”.
+   - tajmer na 1 s koji, kad 15 s ne stigne nijedna `ticker` ili `kline` poruka (za bilo koji par), posivi redove i obeleži ih „Zastarelo”.
 5. Stanja koja moraju biti vidljiva:
    - pre prvog `snapshot`-a: „Učitavanje cena…”;
    - par bez podataka: „—”, nikad 0;
@@ -473,7 +473,7 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data));
 **Gotovo kada**
 
 - [ ] Cene se menjaju bez osvežavanja stranice.
-- [ ] Pretraga „sol” ostavlja samo SOL/USDT.
+- [ ] Pretraga „sol” ostavlja samo SOL/EUR.
 - [ ] Kad zaustaviš server, za par sekundi se pojavi crveni baner; kad ga ponovo pokreneš, dashboard se sam vrati.
 - [ ] Kad isključiš Wi-Fi, redovi posle 15 s postaju „Zastarelo”.
 - [ ] Stranica izgleda uredno i na širini telefona (u Chrome-u: DevTools → ikonica telefona).
@@ -514,7 +514,7 @@ class DecimalString(TypeDecorator):
 4. U `app/models/__init__.py` uvezi sve modele, da `create_all` zna za njih.
 5. U `lifespan` pozovi `await init_db()` pre pokretanja `MarketDataService`.
 6. Napravi `tests/conftest.py` sa fixture-om za bazu u memoriji: `create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)`, `create_all` i sesija. Testovi tako nikad ne diraju pravu bazu.
-7. Testovi u `tests/test_candles.py`: upis i čitanje sveće vraća iste `Decimal` vrednosti (npr. `Decimal("113250.55000000")`), a drugi upis iste sveće baca `IntegrityError`.
+7. Testovi u `tests/test_candles.py`: upis i čitanje sveće vraća iste `Decimal` vrednosti (npr. `Decimal("72416.85000000")`), a drugi upis iste sveće baca `IntegrityError`.
 
 **Fajlovi:** `app/database.py`, `app/models/candle.py`, `app/models/__init__.py`, `app/main.py`, `tests/conftest.py`, `tests/test_candles.py`.
 
@@ -551,7 +551,7 @@ class DecimalString(TypeDecorator):
 
 **Gotovo kada**
 
-- [ ] `/api/markets/BTCUSDT/candles?interval=15m&limit=50` vraća 50 pravih sveća.
+- [ ] `/api/markets/BTCEUR/candles?interval=15m&limit=50` vraća 50 pravih sveća.
 - [ ] Posle nekoliko minuta rada tabela `candles` dobija novi red svakog minuta po paru.
 - [ ] Testovi prolaze bez interneta.
 
@@ -601,7 +601,7 @@ let series = chart.addSeries(CandlestickSeries);
 
 **Gotovo kada**
 
-- [ ] Klik na ETH/USDT u tabeli prikazuje ETH grafikon.
+- [ ] Klik na ETH/EUR u tabeli prikazuje ETH grafikon.
 - [ ] Promena intervala menja sveće, a brzo kliktanje po parovima nikad ne prikaže pogrešan par.
 - [ ] Poslednja sveća se pomera uživo, a kad minut istekne pojavljuje se nova, bez rupa i duplikata.
 - [ ] U konzoli nema grešaka tipa „Cannot update oldest data”.
@@ -627,7 +627,7 @@ let series = chart.addSeries(CandlestickSeries);
    - pri učitavanju stranice pozovi `GET /api/watchlist` i označi zvezdice;
    - panel „Watchlist” prikazuje izabrane parove sa živom cenom i promenom; ako je prazan, piše „Dodaj par klikom na ☆”;
    - prekidač „Samo watchlist” iznad tabele.
-5. Testovi u `tests/test_watchlist.py` (baza u memoriji iz Taska 9 preko `dependency_overrides[get_session]`): dodavanje, duplikat → 409, `DOGEUSDT` → 422, brisanje, brisanje nepostojećeg → 404, i da nova sesija vidi sačuvan par.
+5. Testovi u `tests/test_watchlist.py` (baza u memoriji iz Taska 9 preko `dependency_overrides[get_session]`): dodavanje, duplikat → 409, `DOGEEUR` → 422, brisanje, brisanje nepostojećeg → 404, i da nova sesija vidi sačuvan par.
 
 **Fajlovi:** `app/models/watchlist.py`, `app/models/__init__.py`, `app/schemas/watchlist.py`, `app/api/routes_watchlist.py`, `app/main.py`, `app/static/js/app.js`, `tests/test_watchlist.py`.
 
@@ -641,7 +641,7 @@ let series = chart.addSeries(CandlestickSeries);
 
 ## Task 13 — Price alerts
 
-**Cilj:** korisnik pravi alert tipa „BTC/USDT iznad 100.000”. Backend ga proverava na svakoj validnoj ceni, okida ga tačno jednom, gasi ga, i odmah ga prikazuje na dashboardu.
+**Cilj:** korisnik pravi alert tipa „BTC/EUR iznad 100.000”. Backend ga proverava na svakoj validnoj ceni, okida ga tačno jednom, gasi ga, i odmah ga prikazuje na dashboardu.
 
 **Koraci**
 
@@ -662,20 +662,20 @@ let series = chart.addSeries(CandlestickSeries);
    - napravi `app/templates/partials/alerts_list.html` sa listom alerta;
    - dodaj rute `GET /partials/alerts` i `POST /partials/alerts` koje vraćaju taj HTML fragment i koriste isti `AlertService`;
    - forma: par, uslov (iznad/ispod), cena, sa `hx-post="/partials/alerts"` i `hx-target="#alerts-list"`;
-   - na poruku `alert_triggered` prikaži obaveštenje u uglu ekrana („BTC/USDT je prešao 100.000 USDT”) i premesti alert u sekciju „Okinuti”.
+   - na poruku `alert_triggered` prikaži obaveštenje u uglu ekrana („BTC/EUR je prešao 100.000 EUR”) i premesti alert u sekciju „Okinuti”.
 6. Testovi u `tests/test_alerts.py`:
    - `above` i `below` tačno na granici (`Decimal("100000")` naspram `Decimal("99999.99")`);
    - 100 brzih uzastopnih ticker-a iznad cilja → alert okinut tačno jednom, jedan `alert_triggered` događaj;
    - isključen alert se nikad ne okida;
    - zastareo ticker ne okida alert;
-   - validacija: negativna cena, uslov `"sideways"` i `DOGEUSDT` → 422;
+   - validacija: negativna cena, uslov `"sideways"` i `DOGEEUR` → 422;
    - `PATCH` ponovo uključuje okinut alert.
 
 **Fajlovi:** `app/models/alert.py`, `app/schemas/alert.py`, `app/services/alert_service.py`, `app/api/routes_alerts.py`, `app/templates/partials/alerts_list.html`, `app/templates/index.html`, `app/static/js/app.js`, `app/main.py`, `tests/test_alerts.py`.
 
 **Gotovo kada**
 
-- [ ] Alert „BTC/USDT iznad (trenutna cena − 1)” okine se za par sekundi i pojavi se obaveštenje.
+- [ ] Alert „BTC/EUR iznad (trenutna cena − 1)” okine se za par sekundi i pojavi se obaveštenje.
 - [ ] Posle okidanja alert je neaktivan i ne okida se ponovo, čak ni posle restarta.
 - [ ] Testovi prolaze.
 

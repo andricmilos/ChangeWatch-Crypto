@@ -1,6 +1,6 @@
 "use strict";
 
-// Prices arrive as strings ("113250.55"). Number() is used only to format them for display,
+// Prices arrive as strings ("72416.85"). Number() is used only to format them for display,
 // never to compare them: equality checks and signs are decided on the strings themselves.
 
 const STALE_AFTER_MS = 15000;
@@ -33,8 +33,12 @@ const elements = {
 };
 
 const state = {
-  // symbol -> { market, receivedAt }; receivedAt is null when the data is not current.
+  // symbol -> { market }
   markets: new Map(),
+  // When the last message proving live exchange data arrived (any pair's ticker or kline);
+  // null when the data on screen is not current. Shared by all rows: quiet pairs such as
+  // ADA/EUR can go minutes without a ticker while their price is still current.
+  liveDataAtMs: null,
   socketState: "connecting", // "connecting" | "open" | "closed"
   exchangeStatus: null,
   reconnectDelayMs: RECONNECT_INITIAL_DELAY_MS,
@@ -134,10 +138,7 @@ function renderRow(market) {
     previous !== undefined &&
     !isMissing(market.last_price) &&
     previous.market.last_price !== market.last_price;
-  state.markets.set(market.symbol, {
-    market,
-    receivedAt: market.freshness === "live" ? Date.now() : null,
-  });
+  state.markets.set(market.symbol, { market });
 
   const priceCell = setCell(row, "last_price", formatPrice(market.last_price));
   setCell(row, "price_change", formatPrice(market.price_change, true), market.price_change);
@@ -172,7 +173,12 @@ function renderRow(market) {
 function rowStatus(symbol) {
   const entry = state.markets.get(symbol);
   if (!entry || isMissing(entry.market.last_price)) return "no-data";
-  if (entry.receivedAt === null || Date.now() - entry.receivedAt > STALE_AFTER_MS) {
+  if (
+    state.socketState !== "open" ||
+    state.exchangeStatus !== "connected" ||
+    state.liveDataAtMs === null ||
+    Date.now() - state.liveDataAtMs > STALE_AFTER_MS
+  ) {
     return "stale";
   }
   return "live";
@@ -197,8 +203,12 @@ function renderStatus(symbol) {
   watchlistItem(symbol)?.classList.toggle("is-stale", stale);
 }
 
+function markLiveData() {
+  state.liveDataAtMs = Date.now();
+}
+
 function markAllStale() {
-  for (const entry of state.markets.values()) entry.receivedAt = null;
+  state.liveDataAtMs = null;
   for (const symbol of rows.keys()) renderStatus(symbol);
 }
 
@@ -385,7 +395,9 @@ function showAlertToast(alert) {
   const toast = document.createElement("div");
   toast.className = "toast";
   toast.setAttribute("role", "status");
-  toast.textContent = `${alert.display_symbol} ${verb} ${formatPrice(alert.target_price)} USDT`;
+  // The quote currency comes from the pair itself: "BTC/EUR" -> "EUR".
+  const currency = alert.display_symbol.split("/")[1] ?? "";
+  toast.textContent = `${alert.display_symbol} ${verb} ${formatPrice(alert.target_price)} ${currency}`;
   document.getElementById("toasts").append(toast);
   setTimeout(() => toast.remove(), TOAST_DURATION_MS);
 }
@@ -401,6 +413,8 @@ function handleAlertTriggered(alert) {
 function handleSnapshot(data) {
   elements.loading.hidden = true;
   setExchangeStatus(data.connection_status);
+  // The server's freshness follows its exchange connection, so one live market means all are.
+  if (data.markets.some((market) => market.freshness === "live")) markLiveData();
   for (const market of data.markets) renderRow(market);
 }
 
@@ -410,12 +424,14 @@ function handleMessage(message) {
       handleSnapshot(message.data);
       break;
     case "ticker":
+      markLiveData();
       renderRow(message.data);
       break;
     case "status":
       setExchangeStatus(message.data.connection_status);
       break;
     case "kline":
+      markLiveData();
       chartPanel.handleKline(message.data);
       break;
     case "alert_triggered":

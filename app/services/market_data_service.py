@@ -92,12 +92,16 @@ class MarketDataService:
         await self._notify({"type": "status", "data": {"connection_status": status}})
 
     def freshness(self, symbol: str, now: datetime | None = None) -> Freshness:
-        last_update_at = self._last_update_at.get(symbol)
-        if symbol not in self._tickers or last_update_at is None:
+        if symbol not in self._tickers:
             return "no_data"
-        if self.client.status != "connected":
+        # Binance only sends a ticker when something changes, so a quiet pair (e.g. ADAEUR,
+        # minutes between trades) can go long without a message while its price is still
+        # current. Freshness therefore follows the shared connection (any stream), not the
+        # last message for this one pair.
+        last_message_at = self.client.last_message_at
+        if self.client.status != "connected" or last_message_at is None:
             return "stale"
-        age = (now or datetime.now(UTC)) - last_update_at
+        age = (now or datetime.now(UTC)) - last_message_at
         if age.total_seconds() > self.settings.stale_after_seconds:
             return "stale"
         return "live"

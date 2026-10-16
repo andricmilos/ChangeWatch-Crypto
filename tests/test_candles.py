@@ -25,18 +25,18 @@ MINUTE_MS = 60_000
 FIRST_OPEN_MS = 1760380800000  # 2025-10-13 18:40:00 UTC
 
 
-def binance_row(index: int, close: str = "113250.55000000") -> list:
+def binance_row(index: int, close: str = "72416.85000000") -> list:
     """One /api/v3/klines row exactly as Binance sends it (numbers as strings, times in ms)."""
     open_time = FIRST_OPEN_MS + index * MINUTE_MS
     return [
         open_time,
-        "113100.10000000",
-        "113300.00000000",
-        "113050.01000000",
+        "72300.10000000",
+        "72480.00000000",
+        "72250.01000000",
         close,
         "18.23455100",
         open_time + MINUTE_MS - 1,
-        "2064512.12345678",
+        "1320517.39000000",
         1520,
         "9.10000000",
         "1030000.00000000",
@@ -66,16 +66,16 @@ def make_rest_client(fake: FakeBinance) -> BinanceRestClient:
 
 
 def make_kline(
-    interval: str = "1m", is_closed: bool = True, close: str = "113250.55"
+    interval: str = "1m", is_closed: bool = True, close: str = "72416.85"
 ) -> KlineUpdate:
     return KlineUpdate(
-        symbol="BTCUSDT",
+        symbol="BTCEUR",
         interval=interval,
         open_time=datetime(2025, 10, 13, 18, 40, tzinfo=UTC),
         close_time=datetime(2025, 10, 13, 18, 40, 59, 999000, tzinfo=UTC),
-        open=Decimal("113100.10"),
-        high=Decimal("113300.00"),
-        low=Decimal("113050.01"),
+        open=Decimal("72300.10"),
+        high=Decimal("72480.00"),
+        low=Decimal("72250.01"),
         close=Decimal(close),
         volume=Decimal("18.234551"),
         is_closed=is_closed,
@@ -100,14 +100,14 @@ async def count_candles(session_factory) -> int:
 
 def make_candle() -> Candle:
     return Candle(
-        symbol="BTCUSDT",
+        symbol="BTCEUR",
         interval="1m",
         open_time=1760380800000,
         close_time=1760380859999,
-        open_price=Decimal("113100.10000000"),
-        high_price=Decimal("113300.00000000"),
-        low_price=Decimal("113050.01000000"),
-        close_price=Decimal("113250.55000000"),
+        open_price=Decimal("72300.10000000"),
+        high_price=Decimal("72480.00000000"),
+        low_price=Decimal("72250.01000000"),
+        close_price=Decimal("72416.85000000"),
         volume=Decimal("18.23455100"),
     )
 
@@ -120,12 +120,12 @@ async def test_candle_round_trip_keeps_exact_decimals(session):
     candle = (await session.scalars(select(Candle))).one()
 
     assert isinstance(candle.close_price, Decimal)
-    assert candle.close_price == Decimal("113250.55000000")
+    assert candle.close_price == Decimal("72416.85000000")
     # str() also checks trailing zeros survive, i.e. nothing went through float.
-    assert str(candle.close_price) == "113250.55000000"
-    assert str(candle.open_price) == "113100.10000000"
-    assert str(candle.high_price) == "113300.00000000"
-    assert str(candle.low_price) == "113050.01000000"
+    assert str(candle.close_price) == "72416.85000000"
+    assert str(candle.open_price) == "72300.10000000"
+    assert str(candle.high_price) == "72480.00000000"
+    assert str(candle.low_price) == "72250.01000000"
     assert str(candle.volume) == "18.23455100"
     assert candle.open_time == 1760380800000
     assert candle.close_time == 1760380859999
@@ -145,17 +145,17 @@ async def test_rest_klines_are_parsed_into_decimals():
     fake = FakeBinance()
     client = make_rest_client(fake)
 
-    candles = await client.get_klines("BTCUSDT", "1m", 3)
+    candles = await client.get_klines("BTCEUR", "1m", 3)
 
     assert fake.requests[0].url.path == "/api/v3/klines"
-    assert fake.requests[0].url.params["symbol"] == "BTCUSDT"
+    assert fake.requests[0].url.params["symbol"] == "BTCEUR"
     assert len(candles) == 3
     first = candles[0]
-    assert first.symbol == "BTCUSDT"
+    assert first.symbol == "BTCEUR"
     assert first.interval == "1m"
     assert first.open_time == datetime(2025, 10, 13, 18, 40, tzinfo=UTC)
-    assert first.open == Decimal("113100.10000000")
-    assert str(first.close) == "113250.55000000"
+    assert first.open == Decimal("72300.10000000")
+    assert str(first.close) == "72416.85000000"
     assert first.volume == Decimal("18.23455100")
     # Only the newest candle is still open.
     assert [candle.is_closed for candle in candles] == [True, True, False]
@@ -166,10 +166,10 @@ async def test_invalid_rest_rows_are_dropped_not_zeroed():
     rows = [binance_row(0), binance_row(1, close="0"), binance_row(2, close="abc")]
     client = make_rest_client(FakeBinance(rows=rows))
 
-    candles = await client.get_klines("BTCUSDT", "1m", 3)
+    candles = await client.get_klines("BTCEUR", "1m", 3)
 
     assert len(candles) == 1
-    assert candles[0].close == Decimal("113250.55000000")
+    assert candles[0].close == Decimal("72416.85000000")
     await client.close()
 
 
@@ -178,7 +178,7 @@ async def test_server_errors_raise_exchange_unavailable(status_code):
     client = make_rest_client(FakeBinance(status_code=status_code))
 
     with pytest.raises(ExchangeUnavailableError):
-        await client.get_klines("BTCUSDT", "1m", 3)
+        await client.get_klines("BTCEUR", "1m", 3)
     await client.close()
 
 
@@ -189,7 +189,7 @@ async def test_network_error_raises_exchange_unavailable():
     client = BinanceRestClient(SETTINGS, transport=httpx.MockTransport(fail))
 
     with pytest.raises(ExchangeUnavailableError):
-        await client.get_klines("BTCUSDT", "1m", 3)
+        await client.get_klines("BTCEUR", "1m", 3)
     await client.close()
 
 
@@ -199,9 +199,9 @@ async def test_rate_limit_pauses_further_requests(status_code):
     client = make_rest_client(fake)
 
     with pytest.raises(ExchangeUnavailableError):
-        await client.get_klines("BTCUSDT", "1m", 3)
+        await client.get_klines("BTCEUR", "1m", 3)
     with pytest.raises(ExchangeUnavailableError):
-        await client.get_klines("BTCUSDT", "1m", 3)
+        await client.get_klines("BTCEUR", "1m", 3)
 
     # The second call never reached Binance.
     assert len(fake.requests) == 1
@@ -211,13 +211,13 @@ async def test_rate_limit_pauses_further_requests(status_code):
 async def test_double_upsert_keeps_one_row(session_factory):
     service = CandleService(make_rest_client(FakeBinance()), session_factory)
 
-    await service.upsert_candles([make_kline(close="113250.55")])
-    await service.upsert_candles([make_kline(close="113260.00")])
+    await service.upsert_candles([make_kline(close="72416.85")])
+    await service.upsert_candles([make_kline(close="72426.00")])
 
     assert await count_candles(session_factory) == 1
     async with session_factory() as session:
         stored = (await session.scalars(select(Candle))).one()
-    assert stored.close_price == Decimal("113260.00")
+    assert stored.close_price == Decimal("72426.00")
     assert stored.open_time == FIRST_OPEN_MS
     assert stored.close_time == FIRST_OPEN_MS + MINUTE_MS - 1
 
@@ -238,7 +238,7 @@ async def test_only_closed_1m_klines_are_stored(session_factory):
 async def test_1m_history_is_saved_without_the_open_candle(session_factory):
     service = CandleService(make_rest_client(FakeBinance()), session_factory)
 
-    candles = await service.get_candles("BTCUSDT", "1m", 3)
+    candles = await service.get_candles("BTCEUR", "1m", 3)
 
     assert len(candles) == 3
     assert await count_candles(session_factory) == 2
@@ -249,10 +249,10 @@ async def test_1m_candles_come_from_db_when_binance_returns_503(session_factory)
     await service.upsert_candles([make_kline()])
     service.rest_client = make_rest_client(FakeBinance(status_code=503))
 
-    candles = await service.get_candles("BTCUSDT", "1m", 300)
+    candles = await service.get_candles("BTCEUR", "1m", 300)
 
     assert len(candles) == 1
-    assert candles[0].close == Decimal("113250.55")
+    assert candles[0].close == Decimal("72416.85")
     assert candles[0].open_time == datetime(2025, 10, 13, 18, 40, tzinfo=UTC)
 
 
@@ -260,7 +260,7 @@ async def test_other_intervals_fail_when_binance_returns_503(session_factory):
     service = CandleService(make_rest_client(FakeBinance(status_code=503)), session_factory)
 
     with pytest.raises(ExchangeUnavailableError):
-        await service.get_candles("BTCUSDT", "15m", 50)
+        await service.get_candles("BTCEUR", "15m", 50)
 
 
 async def test_responses_are_cached_for_15_seconds(session_factory):
@@ -268,14 +268,14 @@ async def test_responses_are_cached_for_15_seconds(session_factory):
     fake = FakeBinance()
     service = CandleService(make_rest_client(fake), session_factory, clock=lambda: now[0])
 
-    await service.get_candles("BTCUSDT", "15m", 3)
+    await service.get_candles("BTCEUR", "15m", 3)
     now[0] += 10
-    cached = await service.get_candles("BTCUSDT", "15m", 2)
+    cached = await service.get_candles("BTCEUR", "15m", 2)
     assert len(fake.requests) == 1
     assert len(cached) == 2
 
     now[0] += 6
-    await service.get_candles("BTCUSDT", "15m", 3)
+    await service.get_candles("BTCEUR", "15m", 3)
     assert len(fake.requests) == 2
 
 
@@ -309,17 +309,17 @@ def api_client(session_factory, lifespan_starts):
 
 
 def test_candles_endpoint_returns_chart_format(api_client):
-    response = api_client.get("/api/markets/btc-usdt/candles?interval=15m&limit=50")
+    response = api_client.get("/api/markets/btc-eur/candles?interval=15m&limit=50")
 
     assert response.status_code == 200
     body = response.json()
     assert len(body) == 50
     assert body[0] == {
         "time": (FIRST_OPEN_MS + 10 * MINUTE_MS) // 1000,
-        "open": "113100.10000000",
-        "high": "113300.00000000",
-        "low": "113050.01000000",
-        "close": "113250.55000000",
+        "open": "72300.10000000",
+        "high": "72480.00000000",
+        "low": "72250.01000000",
+        "close": "72416.85000000",
         "volume": "18.23455100",
     }
     assert [candle["time"] for candle in body] == sorted(candle["time"] for candle in body)
@@ -327,8 +327,8 @@ def test_candles_endpoint_returns_chart_format(api_client):
 
 @pytest.mark.parametrize("query", ["interval=3m", "limit=5000", "limit=0", "limit=abc"])
 def test_candles_endpoint_rejects_invalid_params(api_client, query):
-    assert api_client.get(f"/api/markets/BTCUSDT/candles?{query}").status_code == 422
+    assert api_client.get(f"/api/markets/BTCEUR/candles?{query}").status_code == 422
 
 
 def test_candles_endpoint_unknown_symbol_returns_404(api_client):
-    assert api_client.get("/api/markets/DOGEUSDT/candles").status_code == 404
+    assert api_client.get("/api/markets/DOGEEUR/candles").status_code == 404

@@ -18,14 +18,23 @@ from app.schemas.market import KlineUpdate, MarketTicker
 
 logger = logging.getLogger(__name__)
 
-QUOTE_ASSETS = ("USDT", "USDC", "BTC", "ETH", "BNB")
+# Quote currencies are recognised by name, not by length: "EUR" has 3 letters, "USDT" 4.
+QUOTE_ASSETS = ("EUR", "USDT", "USDC", "BTC", "ETH", "BNB")
+
+
+def quote_asset(symbol: str) -> str | None:
+    """Return the quote currency of a pair ("BTCEUR" -> "EUR"), or None if it is unknown."""
+    for quote in QUOTE_ASSETS:
+        if symbol.endswith(quote) and len(symbol) > len(quote):
+            return quote
+    return None
 
 
 def to_display_symbol(symbol: str) -> str:
-    for quote in QUOTE_ASSETS:
-        if symbol.endswith(quote) and len(symbol) > len(quote):
-            return f"{symbol[: -len(quote)]}/{quote}"
-    return symbol
+    quote = quote_asset(symbol)
+    if quote is None:
+        return symbol
+    return f"{symbol[: -len(quote)]}/{quote}"
 
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -431,7 +440,7 @@ class BinanceStreamClient:
 
 async def _print_live_prices(duration: int) -> None:
     settings = get_settings()
-    symbols = ["BTCUSDT", "ETHUSDT"]
+    symbols = ["BTCEUR", "ETHEUR"]
 
     async def print_ticker(ticker: MarketTicker) -> None:
         print(f"{ticker.event_time:%H:%M:%S} {ticker.display_symbol} {ticker.last_price}")

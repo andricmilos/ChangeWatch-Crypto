@@ -1,6 +1,6 @@
 """Fan-out of market data to every connected browser over /ws/market.
 
-Messages sent to the browser (prices are JSON strings, e.g. "113250.55"):
+Messages sent to the browser (prices are JSON strings, e.g. "72416.85"):
 
     {"type": "snapshot", "data": {"connection_status": "connected", "markets": [ ... ]}}
     {"type": "ticker",   "data": { ...MarketView... }}

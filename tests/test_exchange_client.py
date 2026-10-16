@@ -10,7 +10,7 @@ from app.services.exchange_client import (
     compute_backoff,
 )
 
-ALLOWED = {"BTCUSDT", "ETHUSDT"}
+ALLOWED = {"BTCEUR", "ETHEUR"}
 
 
 def ticker_message(symbol, price):
@@ -79,18 +79,18 @@ def make_client(connect_factory, on_ticker=None):
 
 
 def test_build_stream_url():
-    url = build_stream_url("wss://data-stream.binance.vision", ["BTCUSDT", "ETHUSDT"], ["1m", "5m"])
+    url = build_stream_url("wss://data-stream.binance.vision", ["BTCEUR", "ETHEUR"], ["1m", "5m"])
     assert url == (
         "wss://data-stream.binance.vision/stream?streams="
-        "btcusdt@ticker/btcusdt@kline_1m/btcusdt@kline_5m/"
-        "ethusdt@ticker/ethusdt@kline_1m/ethusdt@kline_5m"
+        "btceur@ticker/btceur@kline_1m/btceur@kline_5m/"
+        "etheur@ticker/etheur@kline_1m/etheur@kline_5m"
     )
 
 
 def test_build_stream_url_has_25_streams_for_default_settings():
     url = build_stream_url(
         "wss://data-stream.binance.vision",
-        ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"],
+        ["BTCEUR", "ETHEUR", "SOLEUR", "BNBEUR", "ADAEUR"],
         ["1m", "5m", "15m", "1h"],
     )
     assert len(url.split("streams=")[1].split("/")) == 25
@@ -115,7 +115,7 @@ async def test_client_handles_messages_then_reconnects(monkeypatch):
     def connect_factory(_url):
         if not connections:
             connection = FakeConnection(
-                [ticker_message("BTCUSDT", "113250.55"), ticker_message("ETHUSDT", "4122.75")]
+                [ticker_message("BTCEUR", "72416.85"), ticker_message("ETHEUR", "2145.75")]
             )
         else:
             connection = BlockingConnection([])
@@ -134,8 +134,8 @@ async def test_client_handles_messages_then_reconnects(monkeypatch):
     await wait_until(lambda: len(connections) == 2)
 
     assert [ticker.last_price for ticker in received] == [
-        Decimal("113250.55"),
-        Decimal("4122.75"),
+        Decimal("72416.85"),
+        Decimal("2145.75"),
     ]
     assert client.last_message_at is not None
     assert len(delays) == 1
@@ -204,19 +204,19 @@ async def test_stop_interrupts_reconnect_wait():
 async def test_failing_callback_does_not_drop_connection():
     calls = []
     connection = FakeConnection(
-        [ticker_message("BTCUSDT", "113250.55"), ticker_message("ETHUSDT", "4122.75")]
+        [ticker_message("BTCEUR", "72416.85"), ticker_message("ETHEUR", "2145.75")]
     )
 
     async def on_ticker(ticker):
         calls.append(ticker.symbol)
-        if ticker.symbol == "BTCUSDT":
+        if ticker.symbol == "BTCEUR":
             raise RuntimeError("consumer failed")
 
     client = make_client(lambda _url: FakeConnect(connection), on_ticker)
     await client._dispatch(connection.messages[0])
     await client._dispatch(connection.messages[1])
 
-    assert calls == ["BTCUSDT", "ETHUSDT"]
+    assert calls == ["BTCEUR", "ETHEUR"]
 
 
 async def test_cancelled_error_is_propagated():
@@ -245,7 +245,7 @@ class DrainingConnection:
             raise ConnectionError("closed")
         if self.queued_after_close is not None:
             self.queued_after_close -= 1
-        return ticker_message("BTCUSDT", "113250.55")
+        return ticker_message("BTCEUR", "72416.85")
 
     async def close(self):
         # Messages already on the wire still arrive before Binance's close frame.

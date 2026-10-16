@@ -4,7 +4,7 @@ Real-time cryptocurrency market monitor built with FastAPI, using public Binance
 
 ## Price alerts
 
-An alert ("BTC/USDT above 100,000") is checked on every fresh ticker price and fires exactly
+An alert ("BTC/EUR above 100,000") is checked on every fresh ticker price and fires exactly
 once: it is then switched off and stays off, also after a restart. `PATCH /api/alerts/{id}`
 with `{"is_active": true}` re-enables it.
 

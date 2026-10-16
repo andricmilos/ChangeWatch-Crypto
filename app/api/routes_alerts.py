@@ -10,13 +10,15 @@ from app.api.rate_limit import write_limiter
 from app.models import PriceAlert
 from app.schemas.alert import AlertCreate, AlertOut, AlertUpdate
 from app.services.alert_service import AlertService
-from app.services.exchange_client import to_display_symbol
+from app.services.exchange_client import quote_asset, to_display_symbol
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 partials_router = APIRouter(prefix="/partials", include_in_schema=False)
 
 templates = Jinja2Templates(directory="app/templates")
 templates.env.filters["display_symbol"] = to_display_symbol
+# Currency label next to prices, e.g. "75000 EUR"; empty for an unknown quote currency.
+templates.env.filters["quote_asset"] = lambda symbol: quote_asset(symbol) or ""
 
 Alerts = Annotated[AlertService, Depends(get_alert_service)]
 RateLimited = [Depends(write_limiter)]

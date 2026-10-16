@@ -9,7 +9,7 @@ def test_default_values():
     assert settings.app_env == "development"
     assert settings.log_level == "INFO"
     assert settings.database_url == "sqlite+aiosqlite:///./data/changewatch.db"
-    assert settings.supported_symbols == ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+    assert settings.supported_symbols == ["BTCEUR", "ETHEUR", "SOLEUR", "BNBEUR", "ADAEUR"]
     assert settings.binance_ws_url == "wss://data-stream.binance.vision"
     assert settings.binance_rest_url == "https://data-api.binance.vision"
     assert settings.stale_after_seconds == 15
@@ -20,8 +20,8 @@ def test_default_values():
 
 
 def test_symbols_are_uppercased_and_stripped():
-    settings = Settings(_env_file=None, supported_symbols=["btcusdt ", " ethUSDT"])
-    assert settings.supported_symbols == ["BTCUSDT", "ETHUSDT"]
+    settings = Settings(_env_file=None, supported_symbols=["btceur ", " ethEUR"])
+    assert settings.supported_symbols == ["BTCEUR", "ETHEUR"]
 
 
 def test_empty_symbol_list_raises_error():

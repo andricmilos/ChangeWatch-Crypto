@@ -32,7 +32,7 @@ def get_alert_service(connection: HTTPConnection) -> "AlertService":
 
 
 def normalize_symbol(raw: str, allowed: Collection[str]) -> str:
-    """Turn "btcusdt", "BTC-USDT" or "BTC/USDT" into "BTCUSDT"; unknown pairs are a 404."""
+    """Turn "btceur", "BTC-EUR" or "BTC/EUR" into "BTCEUR"; unknown pairs are a 404."""
     symbol = raw.strip().upper().replace("-", "").replace("/", "")
     if symbol not in allowed:
         raise HTTPException(status_code=404, detail=f"Unknown symbol: {raw}")

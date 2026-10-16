@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
     database_url: str = "sqlite+aiosqlite:///./data/changewatch.db"
-    supported_symbols: list[str] = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
+    supported_symbols: list[str] = ["BTCEUR", "ETHEUR", "SOLEUR", "BNBEUR", "ADAEUR"]
     binance_ws_url: str = "wss://data-stream.binance.vision"
     binance_rest_url: str = "https://data-api.binance.vision"
     stale_after_seconds: int = 15

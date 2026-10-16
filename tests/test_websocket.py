@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,13 +14,13 @@ from app.websocket.routes import market_event_message
 BTC_TICKER = {
     "e": "24hrTicker",
     "E": 1760380800000,
-    "s": "BTCUSDT",
-    "p": "-512.10",
-    "P": "-0.45",
-    "c": "113250.55",
-    "h": "114900.00",
-    "l": "112600.10",
-    "v": "18234.551",
+    "s": "BTCEUR",
+    "p": "-440.10",
+    "P": "-0.60",
+    "c": "72416.85",
+    "h": "73350.00",
+    "l": "71820.10",
+    "v": "412.551",
 }
 
 
@@ -40,6 +42,8 @@ async def fake_service():
     # Never started, so there is no Binance connection; data is written in directly.
     service = MarketDataService(Settings(_env_file=None))
     service.client.status = "connected"
+    # Freshness follows the connection: it counts as live while any stream sends messages.
+    service.client.last_message_at = datetime.now(UTC)
     await service.handle_ticker(parse_ticker(BTC_TICKER))
     return service
 
@@ -77,8 +81,8 @@ def test_first_message_is_snapshot(client):
     assert message["type"] == "snapshot"
     assert message["data"]["connection_status"] == "connected"
     markets = message["data"]["markets"]
-    assert [m["symbol"] for m in markets] == ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT"]
-    assert markets[0]["last_price"] == "113250.55"
+    assert [m["symbol"] for m in markets] == ["BTCEUR", "ETHEUR", "SOLEUR", "BNBEUR", "ADAEUR"]
+    assert markets[0]["last_price"] == "72416.85"
     assert markets[0]["freshness"] == "live"
     assert markets[1]["last_price"] is None
     assert markets[1]["freshness"] == "no_data"
@@ -135,8 +139,8 @@ async def test_ticker_event_becomes_market_view_with_string_prices(fake_service)
     message = market_event_message(event, fake_service)
 
     assert message["type"] == "ticker"
-    assert message["data"]["symbol"] == "BTCUSDT"
-    assert message["data"]["last_price"] == "113250.55"
+    assert message["data"]["symbol"] == "BTCEUR"
+    assert message["data"]["last_price"] == "72416.85"
     assert message["data"]["freshness"] == "live"
 
 
