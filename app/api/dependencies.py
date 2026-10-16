@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from fastapi.requests import HTTPConnection
@@ -6,6 +7,10 @@ from fastapi.requests import HTTPConnection
 from app.services.candle_service import CandleService
 from app.services.market_data_service import MarketDataService
 from app.websocket.manager import ConnectionManager
+
+if TYPE_CHECKING:
+    # Only for the type hint: alert schemas import normalize_symbol from this module.
+    from app.services.alert_service import AlertService
 
 
 # HTTPConnection (not Request) so the same dependencies work in HTTP and WebSocket routes.
@@ -20,6 +25,10 @@ def get_candle_service(connection: HTTPConnection) -> CandleService:
 
 def get_connection_manager(connection: HTTPConnection) -> ConnectionManager:
     return connection.app.state.connection_manager
+
+
+def get_alert_service(connection: HTTPConnection) -> "AlertService":
+    return connection.app.state.alert_service
 
 
 def normalize_symbol(raw: str, allowed: Collection[str]) -> str:

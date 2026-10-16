@@ -376,6 +376,26 @@ async function toggleWatch(symbol) {
   }
 }
 
+// ---------- Alerts ----------
+
+const TOAST_DURATION_MS = 10000;
+
+function showAlertToast(alert) {
+  const verb = alert.condition === "above" ? "je prešao" : "je pao ispod";
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.setAttribute("role", "status");
+  toast.textContent = `${alert.display_symbol} ${verb} ${formatPrice(alert.target_price)} USDT`;
+  document.getElementById("toasts").append(toast);
+  setTimeout(() => toast.remove(), TOAST_DURATION_MS);
+}
+
+function handleAlertTriggered(alert) {
+  showAlertToast(alert);
+  // The server renders the list, so reloading it moves the alert to "Okinuti".
+  htmx.ajax("GET", "/partials/alerts", { target: "#alerts-list" });
+}
+
 // ---------- WebSocket ----------
 
 function handleSnapshot(data) {
@@ -397,6 +417,9 @@ function handleMessage(message) {
       break;
     case "kline":
       chartPanel.handleKline(message.data);
+      break;
+    case "alert_triggered":
+      handleAlertTriggered(message.data);
       break;
     default:
       break;

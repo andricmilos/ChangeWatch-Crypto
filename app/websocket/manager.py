@@ -6,6 +6,7 @@ Messages sent to the browser (prices are JSON strings, e.g. "113250.55"):
     {"type": "ticker",   "data": { ...MarketView... }}
     {"type": "kline",    "data": { ...KlineUpdate... }}
     {"type": "status",   "data": {"connection_status": "reconnecting"}}
+    {"type": "alert_triggered", "data": { ...AlertOut... }}
 
 The first message after connecting is always "snapshot".
 """

@@ -116,8 +116,27 @@
 
     <section class="panel panel-alerts">
       <h2>Alerti</h2>
+      <form class="alert-form" hx-post="/partials/alerts" hx-target="#alerts-list">
+        <select name="symbol" aria-label="Par" required>
+          {% for pair in pairs %}
+          <option value="{{ pair.symbol }}">{{ pair.display_symbol }}</option>
+          {% endfor %}
+        </select>
+        <select name="condition" aria-label="Uslov" required>
+          <option value="above">iznad</option>
+          <option value="below">ispod</option>
+        </select>
+        <input name="target_price" type="text" inputmode="decimal" placeholder="Cena (USDT)"
+               aria-label="Ciljna cena u USDT" autocomplete="off" required>
+        <button type="submit">Dodaj alert</button>
+      </form>
+      <div id="alerts-list" hx-get="/partials/alerts" hx-trigger="load">
+        <p class="alerts-empty">Učitavanje alerta…</p>
+      </div>
     </section>
   </main>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <footer class="footer">
     <p>
