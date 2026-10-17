@@ -17,6 +17,7 @@ def test_default_values():
     assert settings.reconnect_max_delay == 60.0
     assert settings.kline_intervals == ["1m", "5m", "15m", "1h"]
     assert settings.receive_timeout_seconds == 30
+    assert settings.rolling_windows == ["1h", "4h"]
 
 
 def test_symbols_are_uppercased_and_stripped():
@@ -27,3 +28,8 @@ def test_symbols_are_uppercased_and_stripped():
 def test_empty_symbol_list_raises_error():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, supported_symbols=[])
+
+
+def test_unsupported_rolling_window_raises_error():
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, rolling_windows=["1d"])

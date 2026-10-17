@@ -8,6 +8,17 @@ const RECONNECT_INITIAL_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const LOCALE = "sr-Latn-RS";
 const MISSING = "—";
+// Live prices would otherwise reshuffle the sorted table every second.
+const RESORT_MIN_INTERVAL_MS = 5000;
+const SORT_STORAGE_KEY = "changewatch.sort";
+const SORT_KEYS = [
+  "pair",
+  "last_price",
+  "change_1h_percent",
+  "change_4h_percent",
+  "price_change_percent",
+  "volume_24h",
+];
 
 const rows = new Map();
 const cards = new Map();
@@ -30,6 +41,9 @@ const elements = {
   watchlist: document.getElementById("watchlist"),
   watchlistEmpty: document.getElementById("watchlist-empty"),
   watchlistError: document.getElementById("watchlist-error"),
+  marketsBody: document.getElementById("markets-body"),
+  tableWrap: document.querySelector(".table-wrap"),
+  sortButtons: document.querySelectorAll(".markets .sort"),
 };
 
 const state = {
@@ -48,6 +62,12 @@ const state = {
   watchlist: new Set(),
   // Symbols with a POST/DELETE in flight, so a double click sends only one request.
   pendingStars: new Set(),
+  // { key, direction: "desc" | "asc" } or null when the table keeps its original order.
+  sort: null,
+  sortedAtMs: 0,
+  // New data arrived since the last reorder.
+  sortDirty: false,
+  pointerOverTable: false,
 };
 
 // ---------- Formatting ----------
@@ -148,6 +168,9 @@ function renderRow(market) {
     formatPercent(market.price_change_percent),
     market.price_change_percent,
   );
+  for (const field of ["change_1h_percent", "change_4h_percent"]) {
+    setCell(row, field, formatPercent(market[field]), market[field]);
+  }
   setCell(row, "high_24h", formatPrice(market.high_24h));
   setCell(row, "low_24h", formatPrice(market.low_24h));
   setCell(row, "volume_24h", formatNumber(market.volume_24h, 2));
@@ -168,6 +191,7 @@ function renderRow(market) {
   renderWatchlistPrice(market.symbol);
   renderStatus(market.symbol);
   updateLastUpdate(market.updated_at);
+  state.sortDirty = true;
 }
 
 function rowStatus(symbol) {
@@ -474,6 +498,103 @@ function connect() {
   });
 }
 
+// ---------- Sorting ----------
+
+function compareDecimalStrings(a, b) {
+  // Exact comparison of "-0.21" / "72416.85" without going through a float.
+  const negativeA = a.startsWith("-");
+  const negativeB = b.startsWith("-");
+  if (negativeA !== negativeB) return negativeA ? -1 : 1;
+  const [intA, fracA = ""] = a.replace(/^[-+]/, "").split(".");
+  const [intB, fracB = ""] = b.replace(/^[-+]/, "").split(".");
+  const cleanA = intA.replace(/^0+/, "");
+  const cleanB = intB.replace(/^0+/, "");
+  const width = Math.max(fracA.length, fracB.length);
+  const digitsA = fracA.padEnd(width, "0");
+  const digitsB = fracB.padEnd(width, "0");
+  let result;
+  if (cleanA.length !== cleanB.length) {
+    result = cleanA.length < cleanB.length ? -1 : 1;
+  } else {
+    // Same number of integer digits, so plain string order equals numeric order.
+    const textA = cleanA + digitsA;
+    const textB = cleanB + digitsB;
+    result = textA === textB ? 0 : textA < textB ? -1 : 1;
+  }
+  return negativeA ? -result : result;
+}
+
+function sortValue(symbol, key) {
+  if (key === "pair") return displaySymbol(symbol);
+  const value = state.markets.get(symbol)?.market[key];
+  return isMissing(value) ? null : value;
+}
+
+function compareRows(symbolA, symbolB) {
+  const { key, direction } = state.sort;
+  const a = sortValue(symbolA, key);
+  const b = sortValue(symbolB, key);
+  // Rows without a value go last in both directions.
+  if (a === null || b === null) return (a === null) - (b === null);
+  const result = key === "pair" ? a.localeCompare(b, LOCALE) : compareDecimalStrings(a, b);
+  return direction === "desc" ? -result : result;
+}
+
+function applySort() {
+  state.sortedAtMs = Date.now();
+  state.sortDirty = false;
+  if (state.sort === null) return;
+  const sorted = [...rows.keys()].sort(compareRows);
+  // append() moves existing rows, so their listeners and state stay intact.
+  elements.marketsBody.append(...sorted.map((symbol) => rows.get(symbol)));
+}
+
+function maybeResort() {
+  if (state.sort === null || !state.sortDirty || state.pointerOverTable) return;
+  if (Date.now() - state.sortedAtMs < RESORT_MIN_INTERVAL_MS) return;
+  applySort();
+}
+
+function renderSortHeaders() {
+  for (const button of elements.sortButtons) {
+    const active = state.sort?.key === button.dataset.sort;
+    const ariaSort = !active
+      ? "none"
+      : state.sort.direction === "desc"
+        ? "descending"
+        : "ascending";
+    button.closest("th").setAttribute("aria-sort", ariaSort);
+  }
+}
+
+function loadSort() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY));
+    if (SORT_KEYS.includes(saved?.key) && ["asc", "desc"].includes(saved?.direction)) {
+      state.sort = { key: saved.key, direction: saved.direction };
+    }
+  } catch (error) {
+    console.warn("Could not read the saved table sort", error);
+  }
+}
+
+function saveSort() {
+  try {
+    localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(state.sort));
+  } catch (error) {
+    console.warn("Could not save the table sort", error);
+  }
+}
+
+function changeSort(key) {
+  const direction = state.sort?.key === key && state.sort.direction === "desc" ? "asc" : "desc";
+  state.sort = { key, direction };
+  saveSort();
+  renderSortHeaders();
+  // A click is a deliberate choice, so it reorders right away even under the cursor.
+  applySort();
+}
+
 // ---------- Search ----------
 
 function applyFilter() {
@@ -486,6 +607,15 @@ function applyFilter() {
 }
 
 elements.search.addEventListener("input", applyFilter);
+for (const button of elements.sortButtons) {
+  button.addEventListener("click", () => changeSort(button.dataset.sort));
+}
+elements.tableWrap.addEventListener("pointerenter", () => {
+  state.pointerOverTable = true;
+});
+elements.tableWrap.addEventListener("pointerleave", () => {
+  state.pointerOverTable = false;
+});
 elements.onlyWatchlist.addEventListener("change", applyFilter);
 for (const [symbol, row] of rows) {
   row.addEventListener("click", () => selectPair(symbol));
@@ -498,8 +628,11 @@ for (const [symbol, row] of rows) {
 setInterval(() => {
   for (const symbol of rows.keys()) renderStatus(symbol);
   renderChartStale();
+  maybeResort();
 }, 1000);
 const firstSymbol = rows.keys().next().value;
 if (firstSymbol !== undefined) selectPair(firstSymbol);
+loadSort();
+renderSortHeaders();
 loadWatchlist();
 connect();

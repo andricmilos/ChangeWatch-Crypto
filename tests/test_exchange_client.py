@@ -87,6 +87,17 @@ def test_build_stream_url():
     )
 
 
+def test_build_stream_url_with_rolling_windows():
+    url = build_stream_url(
+        "wss://data-stream.binance.vision", ["BTCEUR", "ETHEUR"], ["1m"], ["1h", "4h"]
+    )
+    assert url == (
+        "wss://data-stream.binance.vision/stream?streams="
+        "btceur@ticker/btceur@ticker_1h/btceur@ticker_4h/btceur@kline_1m/"
+        "etheur@ticker/etheur@ticker_1h/etheur@ticker_4h/etheur@kline_1m"
+    )
+
+
 def test_build_stream_url_has_25_streams_for_default_settings():
     url = build_stream_url(
         "wss://data-stream.binance.vision",

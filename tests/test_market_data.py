@@ -5,11 +5,12 @@ from decimal import Decimal
 import pytest
 
 from app.config import Settings
-from app.schemas.market import KlineUpdate, MarketTicker
+from app.schemas.market import KlineUpdate, MarketTicker, RollingChange
 from app.services.exchange_client import (
     ms_to_datetime,
     parse_kline,
     parse_message,
+    parse_rolling_ticker,
     parse_ticker,
     quote_asset,
     to_display_symbol,
@@ -53,6 +54,23 @@ def make_kline(is_closed):
             "x": is_closed,
         },
     }
+
+
+def make_rolling(window="1h", **overrides):
+    # Binance also sends p, o, h, l, c, v ... for the window; the parser must ignore them.
+    data = {
+        "e": f"{window}Ticker",
+        "E": 1760380800000,
+        "s": "BTCEUR",
+        "p": "-150.00",
+        "P": "-0.21",
+        "c": "72416.85",
+        "h": "72600.00",
+        "l": "72300.00",
+        "v": "35.120",
+    }
+    data.update(overrides)
+    return data
 
 
 def combined(stream, data):
@@ -340,3 +358,97 @@ async def test_start_and_stop_finish_client_task(monkeypatch):
     await service.stop()
 
     assert service._task is None
+
+
+# ---------- Rolling window (1h / 4h) changes ----------
+
+
+@pytest.mark.parametrize("window", ["1h", "4h"])
+def test_rolling_ticker_is_parsed(window):
+    event = parse_message(combined(f"btceur@ticker_{window}", make_rolling(window)), ALLOWED)
+
+    assert isinstance(event, RollingChange)
+    assert event.symbol == "BTCEUR"
+    assert event.window == window
+    assert event.change_percent == Decimal("-0.21")
+    assert event.event_time == datetime(2025, 10, 13, 18, 40, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("bad_percent", [None, "", "abc", "NaN", "Infinity", 1.5, True])
+def test_rolling_ticker_with_invalid_percent_is_dropped(bad_percent):
+    assert parse_rolling_ticker(make_rolling(P=bad_percent), ALLOWED) is None
+
+
+def test_rolling_ticker_without_percent_is_dropped():
+    data = make_rolling()
+    del data["P"]
+    assert parse_rolling_ticker(data, ALLOWED) is None
+
+
+def test_rolling_ticker_with_invalid_event_time_is_dropped():
+    assert parse_rolling_ticker(make_rolling(E="soon"), ALLOWED) is None
+
+
+def test_rolling_ticker_outside_allowlist_is_dropped():
+    assert parse_rolling_ticker(make_rolling(s="DOGEEUR"), ALLOWED) is None
+
+
+def test_rolling_ticker_with_unknown_window_is_ignored():
+    assert parse_rolling_ticker(make_rolling("1d"), ALLOWED) is None
+    assert parse_message(combined("btceur@ticker_1d", make_rolling("1d")), ALLOWED) is None
+
+
+def rolling_at(event_ms, percent, window="1h", symbol="BTCEUR"):
+    return parse_rolling_ticker(make_rolling(window, E=event_ms, P=percent, s=symbol))
+
+
+async def test_rolling_change_does_not_touch_price_or_24h_data():
+    service = make_service()
+    await service.handle_ticker(ticker_at(1760380800000))
+    before = service.snapshot()["markets"][0]["ticker"]
+
+    await service.handle_rolling(rolling_at(1760380801000, "1.25"))
+    await service.handle_rolling(rolling_at(1760380801000, "-3.40", window="4h"))
+
+    btc = service.snapshot()["markets"][0]
+    assert btc["ticker"] == before
+    assert btc["ticker"].last_price == Decimal("72416.85")
+    assert btc["ticker"].price_change_percent == Decimal("-0.60")
+    assert btc["change_1h_percent"] == Decimal("1.25")
+    assert btc["change_4h_percent"] == Decimal("-3.40")
+
+
+async def test_rolling_change_only_sets_its_own_window():
+    service = make_service()
+
+    await service.handle_rolling(rolling_at(1760380800000, "1.25", window="4h"))
+
+    btc = service.snapshot()["markets"][0]
+    assert btc["change_1h_percent"] is None
+    assert btc["change_4h_percent"] == Decimal("1.25")
+
+
+async def test_older_rolling_change_does_not_overwrite_newer():
+    service = make_service()
+    events = subscribe_recorder(service)
+
+    await service.handle_rolling(rolling_at(1760380801000, "1.25"))
+    await service.handle_rolling(rolling_at(1760380800000, "0.90"))
+
+    assert service.snapshot()["markets"][0]["change_1h_percent"] == Decimal("1.25")
+    assert len(events) == 1
+
+
+async def test_rolling_change_notifies_only_when_value_changes():
+    service = make_service()
+    events = subscribe_recorder(service)
+
+    await service.handle_rolling(rolling_at(1760380800000, "1.25"))
+    await service.handle_rolling(rolling_at(1760380801000, "1.25"))
+    await service.handle_rolling(rolling_at(1760380802000, "1.30"))
+
+    assert [event["type"] for event in events] == ["rolling", "rolling"]
+    assert [event["data"].change_percent for event in events] == [
+        Decimal("1.25"),
+        Decimal("1.30"),
+    ]

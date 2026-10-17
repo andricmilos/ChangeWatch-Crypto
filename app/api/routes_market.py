@@ -19,6 +19,9 @@ def to_market_view(market: dict[str, Any]) -> MarketView:
     view = MarketView(
         symbol=market["symbol"],
         display_symbol=market["display_symbol"],
+        # Rolling changes come from their own streams, so they can exist before the 24h ticker.
+        change_1h_percent=market["change_1h_percent"],
+        change_4h_percent=market["change_4h_percent"],
         updated_at=market["updated_at"],
         freshness=market["freshness"],
     )

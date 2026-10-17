@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_market_service, normalize_symbol
 from app.config import Settings
 from app.main import app
-from app.services.exchange_client import parse_ticker
+from app.services.exchange_client import parse_rolling_ticker, parse_ticker
 from app.services.market_data_service import MarketDataService
 
 BTC_TICKER = {
@@ -32,6 +32,7 @@ async def fake_service():
     # Freshness follows the connection: it counts as live while any stream sends messages.
     service.client.last_message_at = datetime.now(UTC)
     await service.handle_ticker(parse_ticker(BTC_TICKER))
+    await service.handle_rolling(parse_rolling_ticker({**BTC_TICKER, "e": "1hTicker", "P": "0.35"}))
     return service
 
 
@@ -72,6 +73,14 @@ def test_prices_are_strings_and_fresh(client):
     assert btc["freshness"] == "live"
 
 
+def test_markets_include_rolling_changes(client):
+    btc = client.get("/api/markets").json()["markets"][0]
+
+    assert btc["change_1h_percent"] == "0.35"
+    # The 4h stream has not sent anything for BTC yet.
+    assert btc["change_4h_percent"] is None
+
+
 def test_get_single_market(client):
     response = client.get("/api/markets/BTCEUR")
 
@@ -96,6 +105,8 @@ def test_market_without_data_has_null_price(client):
 
     assert eth["last_price"] is None
     assert eth["volume_24h"] is None
+    assert eth["change_1h_percent"] is None
+    assert eth["change_4h_percent"] is None
     assert eth["updated_at"] is None
     assert eth["freshness"] == "no_data"
 

@@ -14,7 +14,7 @@ import httpx
 from websockets.asyncio.client import connect
 
 from app.config import Settings, get_settings
-from app.schemas.market import KlineUpdate, MarketTicker
+from app.schemas.market import KlineUpdate, MarketTicker, RollingChange
 from app.services.runtime_stats import RuntimeStats
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,43 @@ def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> Marke
     )
 
 
+# Rolling window event type -> window; Binance also has "1dTicker", which is not used here.
+ROLLING_EVENT_WINDOWS = {"1hTicker": "1h", "4hTicker": "4h"}
+
+
+def parse_rolling_ticker(
+    data: dict[str, Any], allowed: set[str] | None = None
+) -> RollingChange | None:
+    """Keep only symbol, window, percent change and time; the rest overlaps the 24h ticker."""
+    window = ROLLING_EVENT_WINDOWS.get(data.get("e"))
+    if window is None:
+        logger.warning("Ignoring rolling ticker with unknown window: %r", data.get("e"))
+        return None
+
+    symbol = data.get("s")
+    if not isinstance(symbol, str) or (allowed is not None and symbol not in allowed):
+        logger.warning("Ignoring rolling ticker for unsupported symbol: %r", symbol)
+        return None
+
+    change_percent = _to_decimal(data.get("P"))
+    if change_percent is None:
+        logger.warning(
+            "Ignoring %s ticker for %s with invalid change: %r", window, symbol, data.get("P")
+        )
+        return None
+
+    event_time = _to_datetime(data.get("E"))
+    if event_time is None:
+        logger.warning(
+            "Ignoring %s ticker for %s with invalid event time: %r", window, symbol, data.get("E")
+        )
+        return None
+
+    return RollingChange(
+        symbol=symbol, window=window, change_percent=change_percent, event_time=event_time
+    )
+
+
 def parse_kline(data: dict[str, Any], allowed: set[str] | None = None) -> KlineUpdate | None:
     kline = data.get("k")
     if not isinstance(kline, dict):
@@ -154,7 +191,7 @@ def parse_kline(data: dict[str, Any], allowed: set[str] | None = None) -> KlineU
     )
 
 
-def parse_message(raw: str, allowed: set[str]) -> MarketTicker | KlineUpdate | None:
+def parse_message(raw: str, allowed: set[str]) -> MarketTicker | RollingChange | KlineUpdate | None:
     try:
         message = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -176,16 +213,24 @@ def parse_message(raw: str, allowed: set[str]) -> MarketTicker | KlineUpdate | N
     event_type = data.get("e")
     if event_type == "24hrTicker":
         return parse_ticker(data, allowed)
+    if event_type in ROLLING_EVENT_WINDOWS:
+        return parse_rolling_ticker(data, allowed)
     if event_type == "kline":
         return parse_kline(data, allowed)
     return None
 
 
-def build_stream_url(base_url: str, symbols: list[str], intervals: list[str]) -> str:
+def build_stream_url(
+    base_url: str,
+    symbols: list[str],
+    intervals: list[str],
+    rolling_windows: list[str] | None = None,
+) -> str:
     streams: list[str] = []
     for symbol in symbols:
         name = symbol.lower()
         streams.append(f"{name}@ticker")
+        streams.extend(f"{name}@ticker_{window}" for window in rolling_windows or [])
         streams.extend(f"{name}@kline_{interval}" for interval in intervals)
     return f"{base_url.rstrip('/')}/stream?streams={'/'.join(streams)}"
 
@@ -307,6 +352,7 @@ class BinanceRestClient:
 ClientStatus = Literal["connecting", "connected", "reconnecting", "stopped"]
 TickerCallback = Callable[[MarketTicker], Awaitable[None]]
 KlineCallback = Callable[[KlineUpdate], Awaitable[None]]
+RollingCallback = Callable[[RollingChange], Awaitable[None]]
 StatusCallback = Callable[[ClientStatus], Awaitable[None]]
 # Returns an async context manager yielding a connection with recv() and close();
 # tests pass a fake one so no real network is used.
@@ -334,11 +380,13 @@ class BinanceStreamClient:
         reconnect_initial_delay: float = 1.0,
         reconnect_max_delay: float = 60.0,
         on_status_change: StatusCallback | None = None,
+        on_rolling: RollingCallback | None = None,
         stats: RuntimeStats | None = None,
     ) -> None:
         self.url = url
         self.on_ticker = on_ticker
         self.on_kline = on_kline
+        self.on_rolling = on_rolling
         self.on_status_change = on_status_change
         self.connect_factory = connect_factory
         self.allowed_symbols = allowed_symbols
@@ -447,6 +495,8 @@ class BinanceStreamClient:
                 await self.on_ticker(event)
             elif isinstance(event, KlineUpdate):
                 await self.on_kline(event)
+            elif isinstance(event, RollingChange) and self.on_rolling is not None:
+                await self.on_rolling(event)
         except asyncio.CancelledError:
             raise
         except Exception:

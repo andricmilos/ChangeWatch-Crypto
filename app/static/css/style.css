@@ -215,6 +215,32 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+/* Sortable headers: the button fills the header so the whole label is clickable. */
+
+.markets .sort {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.markets .sort:hover,
+.markets th[aria-sort="ascending"] .sort,
+.markets th[aria-sort="descending"] .sort {
+  color: var(--text);
+}
+
+.markets th[aria-sort="descending"] .sort::after {
+  content: " ▼";
+}
+
+.markets th[aria-sort="ascending"] .sort::after {
+  content: " ▲";
+}
+
 .pair {
   font-weight: 600;
 }
@@ -401,6 +427,11 @@ h2 {
 
   .search {
     width: 100%;
+  }
+
+  /* On phones the 24h change stays; the 1h and 4h columns make room for it. */
+  .markets .col-rolling {
+    display: none;
   }
 }
 

@@ -30,8 +30,9 @@ def snapshot_message(service: MarketDataService) -> dict[str, Any]:
 
 def market_event_message(event: MarketEvent, service: MarketDataService) -> dict[str, Any]:
     """Turn a MarketDataService event into the JSON message browsers receive."""
-    if event["type"] == "ticker":
-        # The browser gets the same MarketView as the REST API, including freshness.
+    if event["type"] in ("ticker", "rolling"):
+        # The browser gets the same MarketView as the REST API, including freshness; a
+        # rolling change is just another "ticker" message to the browser.
         symbol = event["data"].symbol
         market = next(m for m in service.snapshot()["markets"] if m["symbol"] == symbol)
         return {"type": "ticker", "data": to_market_view(market).model_dump(mode="json")}

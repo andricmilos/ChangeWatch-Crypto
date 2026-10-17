@@ -51,13 +51,15 @@
           <thead>
             <tr>
               <th class="star-cell"><span class="visually-hidden">Watchlist</span></th>
-              <th>Par</th>
-              <th class="num">Cena</th>
+              <th aria-sort="none"><button type="button" class="sort" data-sort="pair">Par</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort" data-sort="last_price">Cena</button></th>
               <th class="num">24h promena</th>
-              <th class="num">24h %</th>
+              <th class="num col-rolling" aria-sort="none"><button type="button" class="sort" data-sort="change_1h_percent">1h %</button></th>
+              <th class="num col-rolling" aria-sort="none"><button type="button" class="sort" data-sort="change_4h_percent">4h %</button></th>
+              <th class="num" aria-sort="none"><button type="button" class="sort" data-sort="price_change_percent">24h %</button></th>
               <th class="num">24h max</th>
               <th class="num">24h min</th>
-              <th class="num">Volumen</th>
+              <th class="num" aria-sort="none"><button type="button" class="sort" data-sort="volume_24h">Volumen</button></th>
               <th>Status</th>
             </tr>
           </thead>
@@ -71,6 +73,8 @@
               <td class="pair">{{ pair.display_symbol }}</td>
               <td class="num" data-field="last_price">—</td>
               <td class="num" data-field="price_change">—</td>
+              <td class="num col-rolling" data-field="change_1h_percent">—</td>
+              <td class="num col-rolling" data-field="change_4h_percent">—</td>
               <td class="num" data-field="price_change_percent">—</td>
               <td class="num" data-field="high_24h">—</td>
               <td class="num" data-field="low_24h">—</td>

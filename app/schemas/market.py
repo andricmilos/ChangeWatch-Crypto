@@ -16,6 +16,15 @@ class MarketTicker(BaseModel):
     event_time: datetime
 
 
+class RollingChange(BaseModel):
+    """Percent change over a rolling window ("1h" or "4h") from a Binance <window>Ticker."""
+
+    symbol: str
+    window: str
+    change_percent: Decimal
+    event_time: datetime
+
+
 class KlineUpdate(BaseModel):
     symbol: str
     interval: str
@@ -37,6 +46,8 @@ class MarketView(BaseModel):
     last_price: Decimal | None = None
     price_change: Decimal | None = None
     price_change_percent: Decimal | None = None
+    change_1h_percent: Decimal | None = None
+    change_4h_percent: Decimal | None = None
     high_24h: Decimal | None = None
     low_24h: Decimal | None = None
     volume_24h: Decimal | None = None

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     reconnect_max_delay: float = 60.0
     kline_intervals: list[str] = ["1m", "5m", "15m", "1h"]
     receive_timeout_seconds: int = 30
+    rolling_windows: list[str] = ["1h", "4h"]
 
     @field_validator("supported_symbols")
     @classmethod
@@ -26,6 +27,15 @@ class Settings(BaseSettings):
         if not normalized:
             raise ValueError("supported_symbols must not be empty")
         return normalized
+
+    @field_validator("rolling_windows")
+    @classmethod
+    def check_rolling_windows(cls, windows: list[str]) -> list[str]:
+        # Each window needs its own MarketView field, so only these two are supported.
+        unknown = [window for window in windows if window not in ("1h", "4h")]
+        if unknown:
+            raise ValueError(f"Unsupported rolling windows {unknown}; use 1h and/or 4h")
+        return windows
 
 
 @lru_cache
