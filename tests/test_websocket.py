@@ -52,7 +52,7 @@ async def fake_service():
 def client(fake_service, lifespan_starts):
     original_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[get_market_service] = lambda: fake_service
-    app.dependency_overrides[get_connection_manager] = ConnectionManager
+    app.dependency_overrides[get_connection_manager] = lambda: ConnectionManager()
     # No `with` block: the lifespan (and the real Binance client) does not start.
     yield TestClient(app)
     app.dependency_overrides.clear()

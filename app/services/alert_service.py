@@ -4,12 +4,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import PriceAlert
 from app.schemas.alert import AlertCreate, AlertOut, AlertUpdate
 from app.schemas.market import MarketTicker
 from app.services.market_data_service import MarketDataService, MarketEvent
+from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
 
 logger = logging.getLogger(__name__)
@@ -31,8 +33,10 @@ class AlertService:
         session_factory: async_sessionmaker[AsyncSession],
         market_service: MarketDataService,
         manager: ConnectionManager,
+        stats: RuntimeStats | None = None,
     ) -> None:
         self.session_factory = session_factory
+        self.stats = stats or RuntimeStats()
         self.market_service = market_service
         self.manager = manager
         # symbol -> active alerts; kept in memory so a tick never has to read the database.
@@ -121,20 +125,27 @@ class AlertService:
             .where(PriceAlert.id == alert.id, PriceAlert.is_active.is_(True))
             .values(is_active=False, triggered_at=datetime.now(UTC), triggered_price=price)
         )
-        async with self.session_factory() as session:
-            result = await session.execute(statement)
-            await session.commit()
-            if result.rowcount == 0:
-                return
-            triggered = await session.get(PriceAlert, alert.id, populate_existing=True)
+        try:
+            async with self.session_factory() as session:
+                result = await session.execute(statement)
+                await session.commit()
+                if result.rowcount == 0:
+                    return
+                triggered = await session.get(PriceAlert, alert.id, populate_existing=True)
+        except SQLAlchemyError as exc:
+            self.stats.record_db_write_error()
+            logger.error("Failed to store fired alert %s (%s): %r", alert.id, alert.symbol, exc)
+            raise
 
+        self.stats.record_alert_triggered()
         logger.info(
-            "Alert %s fired: %s %s %s at %s",
+            "Alert %s fired: %s %s %s at %s (%d still active)",
             alert.id,
             alert.symbol,
             alert.condition,
             alert.target_price,
             price,
+            self.active_count(),
         )
         data = AlertOut.model_validate(triggered).model_dump(mode="json")
         await self.manager.broadcast({"type": "alert_triggered", "data": data})

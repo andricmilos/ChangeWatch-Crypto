@@ -15,6 +15,7 @@ from websockets.asyncio.client import connect
 
 from app.config import Settings, get_settings
 from app.schemas.market import KlineUpdate, MarketTicker
+from app.services.runtime_stats import RuntimeStats
 
 logger = logging.getLogger(__name__)
 
@@ -333,6 +334,7 @@ class BinanceStreamClient:
         reconnect_initial_delay: float = 1.0,
         reconnect_max_delay: float = 60.0,
         on_status_change: StatusCallback | None = None,
+        stats: RuntimeStats | None = None,
     ) -> None:
         self.url = url
         self.on_ticker = on_ticker
@@ -343,6 +345,7 @@ class BinanceStreamClient:
         self.receive_timeout = receive_timeout
         self.reconnect_initial_delay = reconnect_initial_delay
         self.reconnect_max_delay = reconnect_max_delay
+        self.stats = stats or RuntimeStats()
 
         self.status: ClientStatus = "stopped"
         self.last_message_at: datetime | None = None
@@ -354,30 +357,40 @@ class BinanceStreamClient:
         await self._set_status("connecting")
         attempt = 0
         while not self._stop_event.is_set():
+            reason = "connection closed"
             try:
                 async with self.connect_factory(self.url) as connection:
                     self._connection = connection
                     await self._set_status("connected")
+                    logger.info(
+                        "Connected to Binance stream after %d failed attempt(s)", attempt
+                    )
                     attempt = 0
-                    logger.info("Connected to Binance stream")
                     await self._receive_loop(connection)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 if self._stop_event.is_set():
                     break
-                logger.warning("Binance stream connection lost: %r", exc)
+                reason = f"{type(exc).__name__}: {exc}"
             finally:
                 self._connection = None
 
             if self._stop_event.is_set():
                 break
+            self.stats.record_disconnect(reason)
             await self._set_status("reconnecting")
             delay = compute_backoff(attempt, self.reconnect_initial_delay, self.reconnect_max_delay)
             # Jitter keeps many clients from reconnecting at exactly the same moment.
             delay += random.uniform(0, delay * 0.1)
             attempt += 1
-            logger.info("Reconnecting to Binance in %.1f s (attempt %d)", delay, attempt)
+            self.stats.record_reconnect_attempt()
+            logger.warning(
+                "Binance stream connection lost (%s); reconnect attempt %d in %.1f s",
+                reason,
+                attempt,
+                delay,
+            )
             await self._sleep_unless_stopped(delay)
 
         await self._set_status("stopped")
@@ -392,6 +405,7 @@ class BinanceStreamClient:
         if status == self.status:
             return
         self.status = status
+        self.stats.record_exchange_status(status)
         if self.on_status_change is None:
             return
         try:
@@ -418,10 +432,16 @@ class BinanceStreamClient:
             if self._stop_event.is_set():
                 continue
             self.last_message_at = datetime.now(UTC)
+            self.stats.record_message()
             await self._dispatch(raw)
 
     async def _dispatch(self, raw: str) -> None:
         event = parse_message(raw, self.allowed_symbols)
+        if event is None:
+            # Invalid JSON, a failed check (logged by the parser) or an unknown event type.
+            self.stats.record_rejected_message()
+            return
+        self.stats.record_pair_message(event.symbol)
         try:
             if isinstance(event, MarketTicker):
                 await self.on_ticker(event)

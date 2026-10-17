@@ -12,6 +12,7 @@ from app.services.exchange_client import (
     build_stream_url,
     to_display_symbol,
 )
+from app.services.runtime_stats import RuntimeStats
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,9 @@ def _same_market_data(old: MarketTicker, new: MarketTicker) -> bool:
 class MarketDataService:
     """In-memory source of truth for the latest market data, fed by one Binance connection."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, stats: RuntimeStats | None = None) -> None:
         self.settings = settings
+        self.stats = stats or RuntimeStats()
         self.client = BinanceStreamClient(
             build_stream_url(
                 settings.binance_ws_url, settings.supported_symbols, settings.kline_intervals
@@ -47,6 +49,7 @@ class MarketDataService:
             reconnect_initial_delay=settings.reconnect_initial_delay,
             reconnect_max_delay=settings.reconnect_max_delay,
             on_status_change=self.handle_status,
+            stats=self.stats,
         )
         self._tickers: dict[str, MarketTicker] = {}
         self._klines: dict[tuple[str, str], KlineUpdate] = {}

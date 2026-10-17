@@ -6,6 +6,7 @@ from fastapi.requests import HTTPConnection
 
 from app.services.candle_service import CandleService
 from app.services.market_data_service import MarketDataService
+from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
 
 if TYPE_CHECKING:
@@ -25,6 +26,10 @@ def get_candle_service(connection: HTTPConnection) -> CandleService:
 
 def get_connection_manager(connection: HTTPConnection) -> ConnectionManager:
     return connection.app.state.connection_manager
+
+
+def get_runtime_stats(connection: HTTPConnection) -> RuntimeStats:
+    return connection.app.state.runtime_stats
 
 
 def get_alert_service(connection: HTTPConnection) -> "AlertService":

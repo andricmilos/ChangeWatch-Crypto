@@ -17,6 +17,8 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from app.services.runtime_stats import RuntimeStats
+
 logger = logging.getLogger(__name__)
 
 SEND_TIMEOUT_SECONDS = 5
@@ -26,8 +28,9 @@ TRY_AGAIN_LATER = 1013
 
 
 class ConnectionManager:
-    def __init__(self) -> None:
+    def __init__(self, stats: RuntimeStats | None = None) -> None:
         self.active_connections: set[WebSocket] = set()
+        self.stats = stats or RuntimeStats()
 
     async def connect(self, websocket: WebSocket) -> bool:
         """Accept the browser, or close it with 1013 when the server is full."""
@@ -57,5 +60,8 @@ class ConnectionManager:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            self.stats.record_browser_send(ok=False)
             logger.info("Dropping browser WebSocket after failed send: %r", exc)
             self.disconnect(websocket)
+            return
+        self.stats.record_browser_send(ok=True)

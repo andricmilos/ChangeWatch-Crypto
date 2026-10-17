@@ -13,6 +13,7 @@ from app.api.dependencies import get_market_service
 from app.api.routes_alerts import partials_router as alerts_partials_router
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_market import router as market_router
+from app.api.routes_status import router as status_router
 from app.api.routes_watchlist import router as watchlist_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
@@ -24,24 +25,40 @@ from app.services.exchange_client import (
     to_display_symbol,
 )
 from app.services.market_data_service import MarketDataService, MarketEvent
+from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
 from app.websocket.routes import market_event_message
 from app.websocket.routes import router as websocket_router
 
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+
+
+def configure_logging(level: str) -> None:
+    logging.basicConfig(level=level.upper(), format=LOG_FORMAT)
+    # uvicorn sets up its own handlers before importing the app; handing its records to
+    # the root logger gives server and application lines the same format.
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uvicorn_logger = logging.getLogger(name)
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.propagate = True
+
+
 settings = get_settings()
-logging.basicConfig(level=settings.log_level.upper())
+configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
-    service = MarketDataService(get_settings())
-    manager = ConnectionManager()
+    stats = RuntimeStats()
+    service = MarketDataService(get_settings(), stats)
+    manager = ConnectionManager(stats)
     rest_client = BinanceRestClient(get_settings())
-    candle_service = CandleService(rest_client, SessionLocal)
-    alert_service = AlertService(SessionLocal, service, manager)
+    candle_service = CandleService(rest_client, SessionLocal, stats=stats)
+    alert_service = AlertService(SessionLocal, service, manager, stats)
     await alert_service.load_active()
+    app.state.runtime_stats = stats
     app.state.market_service = service
     app.state.connection_manager = manager
     app.state.candle_service = candle_service
@@ -61,6 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
 app.include_router(market_router)
+app.include_router(status_router)
 app.include_router(watchlist_router)
 app.include_router(alerts_router)
 app.include_router(alerts_partials_router)

@@ -46,6 +46,7 @@ async def market_websocket(websocket: WebSocket, service: MarketService, manager
         return
     try:
         await websocket.send_json(snapshot_message(service))
+        manager.stats.record_browser_send(ok=True)
         while True:
             # receive() instead of receive_text(): a binary frame must not crash the loop.
             message = await websocket.receive()
