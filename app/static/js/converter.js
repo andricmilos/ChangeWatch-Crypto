@@ -186,5 +186,5 @@ const converterPanel = (() => {
 
   load();
 
-  return { pricesChanged };
+  return { pricesChanged, parseAmount, formatAmount };
 })();

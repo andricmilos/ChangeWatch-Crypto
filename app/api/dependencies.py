@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from fastapi.requests import HTTPConnection
 
 from app.services.candle_service import CandleService
+from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
@@ -22,6 +23,10 @@ def get_market_service(connection: HTTPConnection) -> MarketDataService:
 
 def get_candle_service(connection: HTTPConnection) -> CandleService:
     return connection.app.state.candle_service
+
+
+def get_history_service(connection: HTTPConnection) -> HistoryService:
+    return connection.app.state.history_service
 
 
 def get_connection_manager(connection: HTTPConnection) -> ConnectionManager:

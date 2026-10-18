@@ -329,14 +329,41 @@ class BinanceRestClient:
         await self.http.aclose()
 
     async def get_klines(self, symbol: str, interval: str, limit: int) -> list[KlineUpdate]:
+        rows = await self._fetch_kline_rows(
+            {"symbol": symbol, "interval": interval, "limit": limit}
+        )
+        last_index = len(rows) - 1
+        # The newest candle is still being built, every earlier one is final.
+        candles = [
+            parse_rest_kline(row, symbol, interval, is_closed=index != last_index)
+            for index, row in enumerate(rows)
+        ]
+        return [candle for candle in candles if candle is not None]
+
+    async def get_kline_at(self, symbol: str, interval: str, start: datetime) -> KlineUpdate | None:
+        """The first candle opening at or after `start`, or None if Binance has none."""
+        rows = await self._fetch_kline_rows(
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "startTime": datetime_to_ms(start),
+                "limit": 1,
+            }
+        )
+        if not rows:
+            return None
+        candle = parse_rest_kline(rows[0], symbol, interval, is_closed=False)
+        if candle is None:
+            return None
+        return candle.model_copy(update={"is_closed": candle.close_time < datetime.now(UTC)})
+
+    async def _fetch_kline_rows(self, params: dict[str, Any]) -> list[Any]:
         if time.monotonic() < self._paused_until:
             # After 429/418 Binance bans clients that keep retrying, so wait out the pause.
             raise ExchangeUnavailableError("Binance rate limit pause is still active")
 
         try:
-            response = await self.http.get(
-                "/api/v3/klines", params={"symbol": symbol, "interval": interval, "limit": limit}
-            )
+            response = await self.http.get("/api/v3/klines", params=params)
         except httpx.HTTPError as exc:
             raise ExchangeUnavailableError(f"Binance REST request failed: {exc!r}") from exc
 
@@ -365,14 +392,7 @@ class BinanceRestClient:
             raise ExchangeUnavailableError("Binance REST returned invalid JSON") from exc
         if not isinstance(rows, list):
             raise ExchangeUnavailableError("Binance REST returned an unexpected payload")
-
-        last_index = len(rows) - 1
-        # The newest candle is still being built, every earlier one is final.
-        candles = [
-            parse_rest_kline(row, symbol, interval, is_closed=index != last_index)
-            for index, row in enumerate(rows)
-        ]
-        return [candle for candle in candles if candle is not None]
+        return rows
 
     def _retry_after(self, response: httpx.Response) -> float:
         try:

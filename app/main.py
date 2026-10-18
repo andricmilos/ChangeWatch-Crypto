@@ -13,6 +13,7 @@ from app.api.dependencies import get_market_service
 from app.api.routes_alerts import partials_router as alerts_partials_router
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_convert import router as convert_router
+from app.api.routes_history import router as history_router
 from app.api.routes_market import router as market_router
 from app.api.routes_status import router as status_router
 from app.api.routes_watchlist import router as watchlist_router
@@ -26,6 +27,7 @@ from app.services.exchange_client import (
     ExchangeUnavailableError,
     to_display_symbol,
 )
+from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService, MarketEvent
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
@@ -64,6 +66,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.market_service = service
     app.state.connection_manager = manager
     app.state.candle_service = candle_service
+    app.state.history_service = HistoryService(rest_client)
     app.state.alert_service = alert_service
 
     async def broadcast_market_event(event: MarketEvent) -> None:
@@ -81,6 +84,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
 app.include_router(market_router)
 app.include_router(convert_router)
+app.include_router(history_router)
 app.include_router(status_router)
 app.include_router(watchlist_router)
 app.include_router(alerts_router)

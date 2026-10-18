@@ -164,6 +164,50 @@
         trgovanje.
       </p>
     </section>
+
+    <section class="panel panel-history">
+      <div class="panel-header">
+        <h2>Šta bi bilo da…</h2>
+      </div>
+      <div class="history-form">
+        <label class="history-amount">
+          Uloženo (EUR)
+          <input id="history-amount" type="text" inputmode="decimal" value="100"
+                 placeholder="Iznos" autocomplete="off">
+        </label>
+        <div class="button-group" role="group" aria-label="Pre koliko vremena">
+          <button type="button" class="toggle" data-period="24h" aria-pressed="false">24h</button>
+          <button type="button" class="toggle" data-period="7d" aria-pressed="false">7d</button>
+          <button type="button" class="toggle" data-period="30d" aria-pressed="true">30d</button>
+          <button type="button" class="toggle" data-period="90d" aria-pressed="false">90d</button>
+          <button type="button" class="toggle" data-period="1y" aria-pressed="false">1g</button>
+          <button type="button" class="toggle" data-period="custom" aria-pressed="false">Drugi datum</button>
+        </div>
+        <input id="history-at" type="datetime-local" aria-label="Datum i vreme kupovine (lokalno)"
+               hidden>
+      </div>
+      <p id="history-error" class="converter-error" role="alert" hidden></p>
+      <p id="history-loading" class="loading" hidden>Učitavanje…</p>
+      <div class="table-wrap">
+        <table class="markets history-table">
+          <thead>
+            <tr>
+              <th>Par</th>
+              <th class="num">Cena tada</th>
+              <th class="num">Cena sada</th>
+              <th class="num">Vrednost danas</th>
+              <th class="num">Dobitak/gubitak</th>
+              <th class="num">%</th>
+            </tr>
+          </thead>
+          <tbody id="history-body" aria-live="polite"></tbody>
+        </table>
+      </div>
+      <p id="history-candle" class="history-candle"></p>
+      <p class="converter-note">
+        Prošli rezultati nisu garancija budućih. Ne uključuje naknade. Nije finansijski savet.
+      </p>
+    </section>
   </main>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
@@ -182,5 +226,7 @@
   <script src="/static/js/app.js"></script>
   <!-- After app.js: it reuses formatPrice() and LOCALE from there. -->
   <script src="/static/js/converter.js"></script>
+  <!-- After converter.js: it reuses parseAmount() and formatAmount() from there. -->
+  <script src="/static/js/history.js"></script>
 </body>
 </html>
