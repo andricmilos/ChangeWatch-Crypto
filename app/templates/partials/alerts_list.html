@@ -1,0 +1,37 @@
+{% macro alert_item(alert) %}
+<li class="alert-item" data-alert-id="{{ alert.id }}">
+  <span class="pair">{{ alert.symbol | display_symbol }}</span>
+  <span>{{ "iznad" if alert.condition == "above" else "ispod" }}</span>
+  <span class="num">{{ alert.target_price }} {{ alert.symbol | quote_asset }}</span>
+  {% if alert.triggered_at %}
+  <span class="alert-meta">
+    okinut na {{ alert.triggered_price }} {{ alert.symbol | quote_asset }}, {{ alert.triggered_at.strftime("%Y-%m-%d %H:%M:%S") }} UTC
+  </span>
+  {% endif %}
+</li>
+{% endmacro %}
+{% if error %}
+<p class="alerts-error" role="alert">{{ error }}</p>
+{% endif %}
+<h3>Aktivni</h3>
+{% if active %}
+<ul class="alerts">
+  {% for alert in active %}{{ alert_item(alert) }}{% endfor %}
+</ul>
+{% else %}
+<p class="alerts-empty">Nema aktivnih alerta.</p>
+{% endif %}
+{% if disabled %}
+<h3>Isključeni</h3>
+<ul class="alerts alerts-disabled">
+  {% for alert in disabled %}{{ alert_item(alert) }}{% endfor %}
+</ul>
+{% endif %}
+<h3>Okinuti</h3>
+{% if triggered %}
+<ul class="alerts alerts-triggered">
+  {% for alert in triggered %}{{ alert_item(alert) }}{% endfor %}
+</ul>
+{% else %}
+<p class="alerts-empty">Nijedan alert još nije okinut.</p>
+{% endif %}
