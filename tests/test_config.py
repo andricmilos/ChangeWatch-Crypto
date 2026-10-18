@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -18,6 +20,12 @@ def test_default_values():
     assert settings.kline_intervals == ["1m", "5m", "15m", "1h"]
     assert settings.receive_timeout_seconds == 30
     assert settings.rolling_windows == ["1h", "4h"]
+    assert settings.spread_warning_percent == Decimal("0.5")
+
+
+def test_spread_warning_percent_from_env(monkeypatch):
+    monkeypatch.setenv("SPREAD_WARNING_PERCENT", "1.25")
+    assert Settings(_env_file=None).spread_warning_percent == Decimal("1.25")
 
 
 def test_symbols_are_uppercased_and_stripped():

@@ -8,6 +8,8 @@ const RECONNECT_INITIAL_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const LOCALE = "sr-Latn-RS";
 const MISSING = "—";
+const HIGH_SPREAD_TOOLTIP =
+  "Velika razlika između kupovne i prodajne cene — tržište je manje likvidno.";
 // Live prices would otherwise reshuffle the sorted table every second.
 const RESORT_MIN_INTERVAL_MS = 5000;
 const SORT_STORAGE_KEY = "changewatch.sort";
@@ -174,6 +176,9 @@ function renderRow(market) {
   setCell(row, "high_24h", formatPrice(market.high_24h));
   setCell(row, "low_24h", formatPrice(market.low_24h));
   setCell(row, "volume_24h", formatNumber(market.volume_24h, 2));
+  setCell(row, "bid_price", formatPrice(market.bid_price));
+  setCell(row, "ask_price", formatPrice(market.ask_price));
+  renderSpread(row, market);
   if (priceChanged && priceCell) flash(priceCell);
 
   const card = cards.get(market.symbol);
@@ -192,6 +197,21 @@ function renderRow(market) {
   renderStatus(market.symbol);
   updateLastUpdate(market.updated_at);
   state.sortDirty = true;
+}
+
+function renderSpread(row, market) {
+  const spreadText = isMissing(market.spread_percent)
+    ? MISSING
+    : `${formatNumber(market.spread_percent, 3)}%`;
+  setCell(row, "spread_percent", spreadText);
+  const cell = row.querySelector('[data-field="spread_percent"]');
+  const high = market.high_spread === true;
+  cell.classList.toggle("spread-high", high);
+  if (high) {
+    cell.title = HIGH_SPREAD_TOOLTIP;
+  } else {
+    cell.removeAttribute("title");
+  }
 }
 
 function rowStatus(symbol) {

@@ -166,6 +166,70 @@ def test_invalid_bid_or_ask_is_none_not_zero(bad):
     assert ticker.ask_price is None
 
 
+def test_spread_is_computed_from_bid_and_ask():
+    ticker = parse_ticker(make_ticker(b="99", a="101"))
+
+    assert ticker.spread == Decimal("2")
+    # (101 - 99) / ((101 + 99) / 2) * 100
+    assert ticker.spread_percent == Decimal("2.000")
+
+
+@pytest.mark.parametrize(
+    ("bid", "ask", "expected"),
+    [
+        # 0.0001 / 1.00005 * 100 = 0.0099995 -> rounds half up to 0.010
+        ("1", "1.0001", "0.010"),
+        # 0.0015 / 100.00075 * 100 = 0.0014999... -> 0.001
+        ("100", "100.0015", "0.001"),
+        ("72416.80", "72416.90", "0.000"),
+    ],
+)
+def test_spread_percent_is_rounded_to_three_decimals(bid, ask, expected):
+    ticker = parse_ticker(make_ticker(b=bid, a=ask))
+
+    assert str(ticker.spread_percent) == expected
+
+
+def test_equal_bid_and_ask_give_zero_spread():
+    ticker = parse_ticker(make_ticker(b="100", a="100"))
+
+    assert ticker.spread == Decimal("0")
+    assert ticker.spread_percent == Decimal("0.000")
+
+
+@pytest.mark.parametrize(
+    "book",
+    [
+        {},
+        {"b": "72416.80"},
+        {"a": "72416.90"},
+        {"b": "abc", "a": "72416.90"},
+        {"b": "72416.80", "a": "0"},
+        {"b": "-1", "a": "72416.90"},
+        {"b": 72416.8, "a": "72416.90"},
+        # Crossed book: ask below bid.
+        {"b": "72416.90", "a": "72416.80"},
+    ],
+)
+def test_unusable_bid_ask_drops_both_but_keeps_ticker(book, caplog):
+    data = make_ticker(**book)
+
+    with caplog.at_level("WARNING", logger="app.services.exchange_client"):
+        ticker = parse_ticker(data)
+
+    assert ticker is not None
+    assert ticker.bid_price is None
+    assert ticker.ask_price is None
+    assert ticker.spread is None
+    assert ticker.spread_percent is None
+    assert "Dropping bid/ask for BTCEUR" in caplog.text
+    # Last price and 24h data are unaffected.
+    assert ticker.last_price == Decimal("72416.85")
+    assert ticker.price_change_percent == Decimal("-0.60")
+    assert ticker.high_24h == Decimal("73350.00")
+    assert ticker.volume_24h == Decimal("412.551")
+
+
 def test_symbol_outside_allowlist_returns_none():
     data = make_ticker(s="DOGEEUR")
     assert parse_message(combined("dogeeur@ticker", data), ALLOWED) is None

@@ -23,7 +23,10 @@ def snapshot_message(service: MarketDataService) -> dict[str, Any]:
     snapshot = service.snapshot()
     response = MarketsResponse(
         connection_status=snapshot["connection_status"],
-        markets=[to_market_view(market) for market in snapshot["markets"]],
+        markets=[
+            to_market_view(market, service.settings.spread_warning_percent)
+            for market in snapshot["markets"]
+        ],
     )
     return {"type": "snapshot", "data": response.model_dump(mode="json")}
 
@@ -35,7 +38,8 @@ def market_event_message(event: MarketEvent, service: MarketDataService) -> dict
         # rolling change is just another "ticker" message to the browser.
         symbol = event["data"].symbol
         market = next(m for m in service.snapshot()["markets"] if m["symbol"] == symbol)
-        return {"type": "ticker", "data": to_market_view(market).model_dump(mode="json")}
+        view = to_market_view(market, service.settings.spread_warning_percent)
+        return {"type": "ticker", "data": view.model_dump(mode="json")}
     if event["type"] == "kline":
         return {"type": "kline", "data": event["data"].model_dump(mode="json")}
     return {"type": event["type"], "data": event["data"]}

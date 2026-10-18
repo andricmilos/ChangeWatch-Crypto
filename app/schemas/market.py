@@ -16,6 +16,9 @@ class MarketTicker(BaseModel):
     # Best bid and ask at the time of the ticker ("b" and "a"); the converter prefers them.
     bid_price: Decimal | None = None
     ask_price: Decimal | None = None
+    # ask - bid, and the same relative to the mid price in percent (3 decimals).
+    spread: Decimal | None = None
+    spread_percent: Decimal | None = None
     event_time: datetime
 
 
@@ -54,6 +57,12 @@ class MarketView(BaseModel):
     high_24h: Decimal | None = None
     low_24h: Decimal | None = None
     volume_24h: Decimal | None = None
+    bid_price: Decimal | None = None
+    ask_price: Decimal | None = None
+    spread: Decimal | None = None
+    spread_percent: Decimal | None = None
+    # True when spread_percent is above SPREAD_WARNING_PERCENT; null without bid/ask.
+    high_spread: bool | None = None
     updated_at: datetime | None = None
     freshness: str
 

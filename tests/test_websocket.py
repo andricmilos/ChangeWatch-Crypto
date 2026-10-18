@@ -21,6 +21,8 @@ BTC_TICKER = {
     "h": "73350.00",
     "l": "71820.10",
     "v": "412.551",
+    "b": "99.75",
+    "a": "100.25",
 }
 
 
@@ -84,6 +86,8 @@ def test_first_message_is_snapshot(client):
     assert [m["symbol"] for m in markets] == ["BTCEUR", "ETHEUR", "SOLEUR", "BNBEUR", "ADAEUR"]
     assert markets[0]["last_price"] == "72416.85"
     assert markets[0]["freshness"] == "live"
+    assert markets[0]["spread_percent"] == "0.500"
+    assert markets[1]["spread_percent"] is None
     assert markets[1]["last_price"] is None
     assert markets[1]["freshness"] == "no_data"
 
@@ -142,6 +146,11 @@ async def test_ticker_event_becomes_market_view_with_string_prices(fake_service)
     assert message["data"]["symbol"] == "BTCEUR"
     assert message["data"]["last_price"] == "72416.85"
     assert message["data"]["freshness"] == "live"
+    assert message["data"]["bid_price"] == "99.75"
+    assert message["data"]["ask_price"] == "100.25"
+    assert message["data"]["spread"] == "0.50"
+    assert message["data"]["spread_percent"] == "0.500"
+    assert message["data"]["high_spread"] is False
 
 
 async def test_client_status_change_reaches_subscribers():

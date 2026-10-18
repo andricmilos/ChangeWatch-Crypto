@@ -255,6 +255,12 @@ h2 {
   color: var(--red);
 }
 
+.spread-high {
+  color: var(--yellow);
+  font-weight: 600;
+  cursor: help;
+}
+
 .flash {
   animation: flash 600ms ease-out;
 }
@@ -270,7 +276,8 @@ h2 {
 
 .is-stale,
 .is-stale .positive,
-.is-stale .negative {
+.is-stale .negative,
+.is-stale .spread-high {
   color: var(--muted);
 }
 
@@ -429,8 +436,9 @@ h2 {
     width: 100%;
   }
 
-  /* On phones the 24h change stays; the 1h and 4h columns make room for it. */
-  .markets .col-rolling {
+  /* On phones the 24h change stays; the 1h/4h and bid/ask/spread columns make room for it. */
+  .markets .col-rolling,
+  .markets .col-book {
     display: none;
   }
 }

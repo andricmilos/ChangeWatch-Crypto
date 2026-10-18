@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -19,6 +20,8 @@ class Settings(BaseSettings):
     kline_intervals: list[str] = ["1m", "5m", "15m", "1h"]
     receive_timeout_seconds: int = 30
     rolling_windows: list[str] = ["1h", "4h"]
+    # Spread (in % of the mid price) above which a market is flagged as less liquid.
+    spread_warning_percent: Decimal = Decimal("0.5")
 
     @field_validator("supported_symbols")
     @classmethod

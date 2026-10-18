@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,7 +15,7 @@ MarketService = Annotated[MarketDataService, Depends(get_market_service)]
 Candles = Annotated[CandleService, Depends(get_candle_service)]
 
 
-def to_market_view(market: dict[str, Any]) -> MarketView:
+def to_market_view(market: dict[str, Any], spread_warning_percent: Decimal) -> MarketView:
     ticker = market["ticker"]
     view = MarketView(
         symbol=market["symbol"],
@@ -36,6 +37,15 @@ def to_market_view(market: dict[str, Any]) -> MarketView:
             "high_24h": ticker.high_24h,
             "low_24h": ticker.low_24h,
             "volume_24h": ticker.volume_24h,
+            "bid_price": ticker.bid_price,
+            "ask_price": ticker.ask_price,
+            "spread": ticker.spread,
+            "spread_percent": ticker.spread_percent,
+            "high_spread": (
+                None
+                if ticker.spread_percent is None
+                else ticker.spread_percent > spread_warning_percent
+            ),
         }
     )
 
@@ -45,7 +55,10 @@ async def list_markets(service: MarketService) -> MarketsResponse:
     snapshot = service.snapshot()
     return MarketsResponse(
         connection_status=snapshot["connection_status"],
-        markets=[to_market_view(market) for market in snapshot["markets"]],
+        markets=[
+            to_market_view(market, service.settings.spread_warning_percent)
+            for market in snapshot["markets"]
+        ],
     )
 
 
@@ -53,7 +66,7 @@ async def list_markets(service: MarketService) -> MarketsResponse:
 async def get_market(symbol: str, service: MarketService) -> MarketView:
     normalized = normalize_symbol(symbol, service.settings.supported_symbols)
     market = next(m for m in service.snapshot()["markets"] if m["symbol"] == normalized)
-    return to_market_view(market)
+    return to_market_view(market, service.settings.spread_warning_percent)
 
 
 @router.get("/{symbol}/candles", response_model=list[CandleOut])

@@ -7,7 +7,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal
 
 import httpx
@@ -80,6 +80,33 @@ def _to_datetime(value: Any) -> datetime | None:
         return None
 
 
+SPREAD_PERCENT_STEP = Decimal("0.001")
+
+
+def _parse_bid_ask(data: dict[str, Any], symbol: str) -> tuple[Decimal | None, Decimal | None]:
+    """Best bid ("b") and ask ("a"); both None when either is unusable or the book is crossed."""
+    bid = _to_positive_decimal(data.get("b"))
+    ask = _to_positive_decimal(data.get("a"))
+    if bid is None or ask is None:
+        logger.warning(
+            "Dropping bid/ask for %s: invalid bid %r or ask %r",
+            symbol,
+            data.get("b"),
+            data.get("a"),
+        )
+        return None, None
+    if ask < bid:
+        logger.warning("Dropping bid/ask for %s: ask %s is below bid %s", symbol, ask, bid)
+        return None, None
+    return bid, ask
+
+
+def spread_percent(bid: Decimal, ask: Decimal) -> Decimal:
+    """(ask - bid) relative to the mid price, in percent, rounded to 3 decimals."""
+    mid = (ask + bid) / 2
+    return ((ask - bid) / mid * 100).quantize(SPREAD_PERCENT_STEP, rounding=ROUND_HALF_UP)
+
+
 def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> MarketTicker | None:
     symbol = data.get("s")
     if not isinstance(symbol, str) or (allowed is not None and symbol not in allowed):
@@ -96,6 +123,9 @@ def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> Marke
         logger.warning("Ignoring ticker for %s with invalid event time: %r", symbol, data.get("E"))
         return None
 
+    # A bad bid/ask only drops the book prices; the last price and 24h data stay usable.
+    bid_price, ask_price = _parse_bid_ask(data, symbol)
+    has_book = bid_price is not None and ask_price is not None
     return MarketTicker(
         symbol=symbol,
         display_symbol=to_display_symbol(symbol),
@@ -105,8 +135,10 @@ def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> Marke
         high_24h=_to_positive_decimal(data.get("h")),
         low_24h=_to_positive_decimal(data.get("l")),
         volume_24h=_to_decimal(data.get("v")),
-        bid_price=_to_positive_decimal(data.get("b")),
-        ask_price=_to_positive_decimal(data.get("a")),
+        bid_price=bid_price,
+        ask_price=ask_price,
+        spread=ask_price - bid_price if has_book else None,
+        spread_percent=spread_percent(bid_price, ask_price) if has_book else None,
         event_time=event_time,
     )
 
@@ -245,9 +277,7 @@ class ExchangeUnavailableError(Exception):
     """Binance REST could not give a usable answer (network error, 5xx or rate limit)."""
 
 
-def parse_rest_kline(
-    row: Any, symbol: str, interval: str, is_closed: bool
-) -> KlineUpdate | None:
+def parse_rest_kline(row: Any, symbol: str, interval: str, is_closed: bool) -> KlineUpdate | None:
     """Convert one /api/v3/klines row; the first seven fields are t, o, h, l, c, v, T."""
     if not isinstance(row, list) or len(row) < 7:
         logger.warning("Ignoring invalid REST kline row for %s", symbol)
@@ -412,9 +442,7 @@ class BinanceStreamClient:
                 async with self.connect_factory(self.url) as connection:
                     self._connection = connection
                     await self._set_status("connected")
-                    logger.info(
-                        "Connected to Binance stream after %d failed attempt(s)", attempt
-                    )
+                    logger.info("Connected to Binance stream after %d failed attempt(s)", attempt)
                     attempt = 0
                     await self._receive_loop(connection)
             except asyncio.CancelledError:

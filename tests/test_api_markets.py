@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_market_service, normalize_symbol
+from app.api.routes_market import to_market_view
 from app.config import Settings
 from app.main import app
 from app.services.exchange_client import parse_rolling_ticker, parse_ticker
@@ -21,6 +22,8 @@ BTC_TICKER = {
     "h": "73350.00",
     "l": "71820.10",
     "v": "412.551",
+    "b": "72416.80",
+    "a": "72416.90",
 }
 
 
@@ -69,6 +72,11 @@ def test_prices_are_strings_and_fresh(client):
     assert btc["high_24h"] == "73350.00"
     assert btc["low_24h"] == "71820.10"
     assert btc["volume_24h"] == "412.551"
+    assert btc["bid_price"] == "72416.80"
+    assert btc["ask_price"] == "72416.90"
+    assert btc["spread"] == "0.10"
+    assert btc["spread_percent"] == "0.000"
+    assert btc["high_spread"] is False
     assert btc["updated_at"] is not None
     assert btc["freshness"] == "live"
 
@@ -105,6 +113,11 @@ def test_market_without_data_has_null_price(client):
 
     assert eth["last_price"] is None
     assert eth["volume_24h"] is None
+    assert eth["bid_price"] is None
+    assert eth["ask_price"] is None
+    assert eth["spread"] is None
+    assert eth["spread_percent"] is None
+    assert eth["high_spread"] is None
     assert eth["change_1h_percent"] is None
     assert eth["change_4h_percent"] is None
     assert eth["updated_at"] is None
@@ -120,3 +133,51 @@ def test_normalize_symbol_rejects_unknown():
     with pytest.raises(HTTPException) as exc_info:
         normalize_symbol("DOGEEUR", {"BTCEUR"})
     assert exc_info.value.status_code == 404
+
+
+def market_with_book(bid, ask):
+    return {
+        "symbol": "BTCEUR",
+        "display_symbol": "BTC/EUR",
+        "ticker": parse_ticker({**BTC_TICKER, "b": bid, "a": ask}),
+        "change_1h_percent": None,
+        "change_4h_percent": None,
+        "updated_at": None,
+        "freshness": "live",
+    }
+
+
+@pytest.mark.parametrize(
+    ("bid", "ask", "spread_percent", "high"),
+    [
+        # Exactly at the 0.5 % threshold is not "above" it.
+        ("99.75", "100.25", "0.500", False),
+        ("99.7495", "100.2505", "0.501", True),
+        ("99.7505", "100.2495", "0.499", False),
+    ],
+)
+def test_high_spread_at_threshold(bid, ask, spread_percent, high):
+    view = to_market_view(market_with_book(bid, ask), Decimal("0.5"))
+
+    assert view.spread_percent == Decimal(spread_percent)
+    assert view.high_spread is high
+
+
+def test_high_spread_is_null_without_bid_ask():
+    view = to_market_view(market_with_book(None, None), Decimal("0.5"))
+
+    assert view.last_price == Decimal("72416.85")
+    assert view.spread_percent is None
+    assert view.high_spread is None
+
+
+def test_spread_warning_threshold_comes_from_settings(fake_service):
+    fake_service.settings = Settings(_env_file=None, spread_warning_percent="0.0001")
+    app.dependency_overrides[get_market_service] = lambda: fake_service
+    try:
+        btc = TestClient(app).get("/api/markets/BTCEUR").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    # 0.000 % is still not above 0.0001 %.
+    assert btc["high_spread"] is False
