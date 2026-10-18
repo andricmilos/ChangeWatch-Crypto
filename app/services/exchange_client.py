@@ -105,6 +105,8 @@ def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> Marke
         high_24h=_to_positive_decimal(data.get("h")),
         low_24h=_to_positive_decimal(data.get("l")),
         volume_24h=_to_decimal(data.get("v")),
+        bid_price=_to_positive_decimal(data.get("b")),
+        ask_price=_to_positive_decimal(data.get("a")),
         event_time=event_time,
     )
 

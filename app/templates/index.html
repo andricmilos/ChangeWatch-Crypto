@@ -138,6 +138,26 @@
         <p class="alerts-empty">Učitavanje alerta…</p>
       </div>
     </section>
+
+    <section class="panel panel-converter">
+      <h2>Kalkulator</h2>
+      <div class="converter-form">
+        <input id="converter-amount" type="text" inputmode="decimal" value="100"
+               placeholder="Iznos" aria-label="Iznos" autocomplete="off">
+        <select id="converter-currency" aria-label="Valuta">
+          {% for currency in currencies %}
+          <option value="{{ currency }}">{{ currency }}</option>
+          {% endfor %}
+        </select>
+        <button type="button" id="converter-swap" aria-label="Zameni smer">⇄</button>
+      </div>
+      <p id="converter-error" class="converter-error" role="alert" hidden></p>
+      <ul id="converter-results" class="converter-results" aria-live="polite"></ul>
+      <p class="converter-note">
+        Okvirni iznos po trenutnoj ceni sa Binance-a. Ne uključuje naknade i nije ponuda za
+        trgovanje.
+      </p>
+    </section>
   </main>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
@@ -154,5 +174,7 @@
   <script src="https://unpkg.com/lightweight-charts@5.2/dist/lightweight-charts.standalone.production.js"></script>
   <script src="/static/js/chart.js"></script>
   <script src="/static/js/app.js"></script>
+  <!-- After app.js: it reuses formatPrice() and LOCALE from there. -->
+  <script src="/static/js/converter.js"></script>
 </body>
 </html>

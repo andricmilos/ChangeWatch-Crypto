@@ -151,6 +151,21 @@ def test_missing_optional_field_is_none_not_zero():
     assert ticker.volume_24h is None
 
 
+def test_bid_and_ask_are_parsed():
+    ticker = parse_ticker(make_ticker(b="72416.80", a="72416.90"))
+
+    assert ticker.bid_price == Decimal("72416.80")
+    assert ticker.ask_price == Decimal("72416.90")
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "abc", None])
+def test_invalid_bid_or_ask_is_none_not_zero(bad):
+    ticker = parse_ticker(make_ticker(b=bad, a=bad))
+
+    assert ticker.bid_price is None
+    assert ticker.ask_price is None
+
+
 def test_symbol_outside_allowlist_returns_none():
     data = make_ticker(s="DOGEEUR")
     assert parse_message(combined("dogeeur@ticker", data), ALLOWED) is None
@@ -260,6 +275,17 @@ async def test_same_data_does_not_notify_but_refreshes_update_time():
 
     assert len(events) == 1
     assert service.snapshot()["markets"][0]["updated_at"] >= first_update
+
+
+async def test_bid_ask_change_notifies_even_with_same_last_price():
+    service = make_service()
+    events = subscribe_recorder(service)
+
+    await service.handle_ticker(ticker_at(1760380800000, b="72416.80", a="72416.90"))
+    await service.handle_ticker(ticker_at(1760380801000, b="72416.70", a="72416.90"))
+
+    assert len(events) == 2
+    assert service.snapshot()["markets"][0]["ticker"].bid_price == Decimal("72416.70")
 
 
 async def test_freshness_live_then_stale_after_threshold():

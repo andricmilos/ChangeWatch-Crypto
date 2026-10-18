@@ -30,6 +30,10 @@ def _same_market_data(old: MarketTicker, new: MarketTicker) -> bool:
         and old.high_24h == new.high_24h
         and old.low_24h == new.low_24h
         and old.volume_24h == new.volume_24h
+        # Without these a new bid/ask with an unchanged last price would be dropped, and
+        # the converter would keep quoting an outdated spread.
+        and old.bid_price == new.bid_price
+        and old.ask_price == new.ask_price
     )
 
 

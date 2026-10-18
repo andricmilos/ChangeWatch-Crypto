@@ -13,6 +13,9 @@ class MarketTicker(BaseModel):
     high_24h: Decimal | None = None
     low_24h: Decimal | None = None
     volume_24h: Decimal | None = None
+    # Best bid and ask at the time of the ticker ("b" and "a"); the converter prefers them.
+    bid_price: Decimal | None = None
+    ask_price: Decimal | None = None
     event_time: datetime
 
 

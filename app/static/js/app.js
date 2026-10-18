@@ -442,14 +442,21 @@ function handleSnapshot(data) {
   for (const market of data.markets) renderRow(market);
 }
 
+function notifyPricesChanged() {
+  // An event instead of a direct call, so converter.js stays optional and loads after this file.
+  document.dispatchEvent(new CustomEvent("market:prices"));
+}
+
 function handleMessage(message) {
   switch (message.type) {
     case "snapshot":
       handleSnapshot(message.data);
+      notifyPricesChanged();
       break;
     case "ticker":
       markLiveData();
       renderRow(message.data);
+      notifyPricesChanged();
       break;
     case "status":
       setExchangeStatus(message.data.connection_status);

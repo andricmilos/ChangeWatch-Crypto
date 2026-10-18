@@ -608,3 +608,79 @@ h2 {
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
+
+/* Calculator */
+
+.converter-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.converter-form input,
+.converter-form select,
+.converter-form button {
+  padding: 6px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.converter-form input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.converter-form button {
+  cursor: pointer;
+}
+
+.converter-error {
+  margin: 12px 0 0;
+  color: var(--red);
+}
+
+.converter-error[hidden] {
+  display: none;
+}
+
+.converter-results {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.converter-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.converter-currency {
+  min-width: 3em;
+  font-weight: 600;
+}
+
+.converter-amount {
+  flex: 1;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.converter-meta {
+  width: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.converter-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}

@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from app.api.dependencies import get_market_service
 from app.api.routes_alerts import partials_router as alerts_partials_router
 from app.api.routes_alerts import router as alerts_router
+from app.api.routes_convert import router as convert_router
 from app.api.routes_market import router as market_router
 from app.api.routes_status import router as status_router
 from app.api.routes_watchlist import router as watchlist_router
@@ -19,6 +20,7 @@ from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.services.alert_service import AlertService
 from app.services.candle_service import CandleService
+from app.services.converter import EUR, base_assets
 from app.services.exchange_client import (
     BinanceRestClient,
     ExchangeUnavailableError,
@@ -78,6 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
 app.include_router(market_router)
+app.include_router(convert_router)
 app.include_router(status_router)
 app.include_router(watchlist_router)
 app.include_router(alerts_router)
@@ -114,7 +117,10 @@ async def dashboard(request: Request, service: MarketService) -> HTMLResponse:
         {"symbol": symbol, "display_symbol": to_display_symbol(symbol)}
         for symbol in service.settings.supported_symbols
     ]
-    return templates.TemplateResponse(request, "index.html", {"pairs": pairs})
+    currencies = [EUR, *base_assets(service.settings.supported_symbols)]
+    return templates.TemplateResponse(
+        request, "index.html", {"pairs": pairs, "currencies": currencies}
+    )
 
 
 @app.get("/health")
