@@ -633,7 +633,29 @@ function applyFilter() {
   }
 }
 
+function isTypingTarget(target) {
+  return target instanceof Element && target.matches("input, textarea, select");
+}
+
+function handleSearchShortcut(event) {
+  if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (isTypingTarget(event.target)) return;
+  // Without preventDefault the "/" would be typed into the field it just focused.
+  event.preventDefault();
+  elements.search.focus();
+}
+
+function handleSearchEscape(event) {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  elements.search.value = "";
+  applyFilter();
+  elements.search.blur();
+}
+
 elements.search.addEventListener("input", applyFilter);
+elements.search.addEventListener("keydown", handleSearchEscape);
+document.addEventListener("keydown", handleSearchShortcut);
 for (const button of elements.sortButtons) {
   button.addEventListener("click", () => changeSort(button.dataset.sort));
 }
