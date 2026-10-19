@@ -12,6 +12,7 @@ const HIGH_SPREAD_TOOLTIP =
   "Velika razlika između kupovne i prodajne cene — tržište je manje likvidno.";
 // Live prices would otherwise reshuffle the sorted table every second.
 const RESORT_MIN_INTERVAL_MS = 5000;
+const COPY_LABEL_MS = 1500;
 const SORT_STORAGE_KEY = "changewatch.sort";
 const SORT_KEYS = [
   "pair",
@@ -622,6 +623,34 @@ function changeSort(key) {
   applySort();
 }
 
+// ---------- Copy price ----------
+
+// The label lives in a data attribute shown by CSS, because live updates overwrite the
+// cell's text and would wipe any child element.
+function showCopyLabel(cell, text) {
+  clearTimeout(Number(cell.dataset.copyTimer));
+  cell.dataset.copyLabel = text;
+  cell.dataset.copyTimer = String(
+    setTimeout(() => {
+      delete cell.dataset.copyLabel;
+      delete cell.dataset.copyTimer;
+    }, COPY_LABEL_MS),
+  );
+}
+
+async function copyPrice(symbol, cell) {
+  const price = state.markets.get(symbol)?.market.last_price;
+  if (isMissing(price)) return;
+  try {
+    // The raw server string, so it can be pasted straight into an alert or the calculator.
+    await navigator.clipboard.writeText(price);
+    showCopyLabel(cell, "Kopirano");
+  } catch (error) {
+    console.warn("Could not copy the price", error);
+    showCopyLabel(cell, "Kopiranje nije uspelo");
+  }
+}
+
 // ---------- Search ----------
 
 function applyFilter() {
@@ -672,6 +701,12 @@ for (const [symbol, row] of rows) {
     // The star must not also open the chart for this row.
     event.stopPropagation();
     toggleWatch(symbol);
+  });
+  const priceCell = row.querySelector('[data-field="last_price"]');
+  priceCell.addEventListener("click", (event) => {
+    // Copying must not also open the chart for this row.
+    event.stopPropagation();
+    copyPrice(symbol, priceCell);
   });
 }
 setInterval(() => {
