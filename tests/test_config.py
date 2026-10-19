@@ -9,6 +9,8 @@ from app.config import Settings
 def test_default_values():
     settings = Settings(_env_file=None)
     assert settings.app_env == "development"
+    assert settings.host == "127.0.0.1"
+    assert settings.port == 8000
     assert settings.log_level == "INFO"
     assert settings.database_url == "sqlite+aiosqlite:///./data/changewatch.db"
     assert settings.supported_symbols == ["BTCEUR", "ETHEUR", "SOLEUR", "BNBEUR", "ADAEUR"]
