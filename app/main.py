@@ -19,6 +19,7 @@ from app.api.routes_status import router as status_router
 from app.api.routes_watchlist import router as watchlist_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
+from app.middleware import RequestTimingMiddleware
 from app.services.alert_service import AlertService
 from app.services.candle_service import CandleService
 from app.services.converter import EUR, base_assets
@@ -82,6 +83,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
+app.add_middleware(RequestTimingMiddleware)
 app.include_router(market_router)
 app.include_router(convert_router)
 app.include_router(history_router)
