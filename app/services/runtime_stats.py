@@ -64,6 +64,7 @@ class RuntimeStats:
         self.exchange_status = "stopped"
         self.connected_since: datetime | None = None
         self.reconnects = 0
+        self.server_shutdowns = 0
         self.last_disconnect_at: datetime | None = None
         self.last_disconnect_reason: str | None = None
 
@@ -95,6 +96,9 @@ class RuntimeStats:
 
     def record_reconnect_attempt(self) -> None:
         self.reconnects += 1
+
+    def record_server_shutdown(self) -> None:
+        self.server_shutdowns += 1
 
     # ---------- Exchange messages ----------
 
@@ -148,6 +152,7 @@ class RuntimeStats:
                 "status": self.exchange_status,
                 "connected_since": self.connected_since,
                 "reconnects": self.reconnects,
+                "server_shutdowns": self.server_shutdowns,
                 "last_disconnect_at": self.last_disconnect_at,
                 "last_disconnect_reason": self.last_disconnect_reason,
             },

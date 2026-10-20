@@ -1,14 +1,19 @@
 import asyncio
 import json
+import logging
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
 
 from app.services.exchange_client import (
     BinanceStreamClient,
+    ServerShutdown,
     build_stream_url,
     compute_backoff,
+    parse_message,
 )
+from app.services.runtime_stats import RuntimeStats
 
 ALLOWED = {"BTCEUR", "ETHEUR"}
 
@@ -16,6 +21,11 @@ ALLOWED = {"BTCEUR", "ETHEUR"}
 def ticker_message(symbol, price):
     data = {"e": "24hrTicker", "E": 1760380800000, "s": symbol, "c": price}
     return json.dumps({"stream": f"{symbol.lower()}@ticker", "data": data})
+
+
+SERVER_SHUTDOWN_MESSAGE = json.dumps(
+    {"stream": "!serverShutdown", "data": {"e": "serverShutdown", "E": 1770123456789}}
+)
 
 
 class FakeConnection:
@@ -64,7 +74,7 @@ async def wait_until(condition):
     raise AssertionError("condition was never met")
 
 
-def make_client(connect_factory, on_ticker=None):
+def make_client(connect_factory, on_ticker=None, **kwargs):
     async def ignore(_event):
         return None
 
@@ -75,6 +85,7 @@ def make_client(connect_factory, on_ticker=None):
         connect_factory=connect_factory,
         allowed_symbols=ALLOWED,
         receive_timeout=5,
+        **kwargs,
     )
 
 
@@ -283,3 +294,95 @@ async def test_stop_keeps_reading_until_connection_is_closed():
     assert client.status == "stopped"
     # Messages drained during shutdown are not passed on.
     assert len(received) == received_before_stop
+
+
+def test_parse_message_recognises_server_shutdown():
+    event = parse_message(SERVER_SHUTDOWN_MESSAGE, ALLOWED)
+
+    assert event == ServerShutdown(event_time=datetime(2026, 2, 3, 12, 57, 36, 789000, tzinfo=UTC))
+
+
+def shutdown_then_blocking(shutdowns):
+    """Connect factory: the first `shutdowns` connections each get a serverShutdown."""
+    connections = []
+
+    def connect_factory(_url):
+        if len(connections) < shutdowns:
+            connection = FakeConnection([SERVER_SHUTDOWN_MESSAGE])
+        else:
+            connection = BlockingConnection([])
+        connections.append(connection)
+        return FakeConnect(connection)
+
+    return connect_factory, connections
+
+
+async def run_until_connections(client, connections, count, monkeypatch):
+    delays = []
+
+    async def fake_sleep(delay):
+        delays.append(delay)
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(client, "_sleep_unless_stopped", fake_sleep)
+    task = asyncio.create_task(client.run())
+    await wait_until(lambda: len(connections) == count and client.status == "connected")
+    await client.stop()
+    await asyncio.wait_for(task, timeout=1)
+    return delays
+
+
+async def test_server_shutdown_reconnects_immediately(monkeypatch, caplog):
+    statuses = []
+    stats = RuntimeStats()
+
+    async def on_status_change(status):
+        statuses.append(status)
+
+    connect_factory, connections = shutdown_then_blocking(1)
+    client = make_client(connect_factory, stats=stats, on_status_change=on_status_change)
+
+    with caplog.at_level(logging.INFO, logger="app.services.exchange_client"):
+        delays = await run_until_connections(client, connections, 2, monkeypatch)
+
+    assert delays == []
+    assert statuses == ["connecting", "connected", "reconnecting", "connected", "stopped"]
+    assert stats.server_shutdowns == 1
+    assert stats.reconnects == 0
+    assert stats.messages_rejected == 0
+    messages = [record.getMessage() for record in caplog.records]
+    connect_logs = [message for message in messages if message.startswith("Connected")]
+    assert connect_logs == [
+        "Connected to Binance stream after 0 failed attempt(s)",
+        "Connected to Binance stream after 0 failed attempt(s)",
+    ]
+    shutdown_logs = [r for r in caplog.records if "shutting down" in r.getMessage()]
+    assert [r.levelno for r in shutdown_logs] == [logging.INFO]
+
+
+async def test_second_server_shutdown_within_60_s_uses_backoff(monkeypatch):
+    stats = RuntimeStats()
+    times = iter([100.0, 130.0])
+    connect_factory, connections = shutdown_then_blocking(2)
+    client = make_client(connect_factory, stats=stats, clock=lambda: next(times))
+
+    delays = await run_until_connections(client, connections, 3, monkeypatch)
+
+    assert len(delays) == 1
+    assert 1.0 <= delays[0] <= 1.1
+    assert stats.server_shutdowns == 2
+    assert stats.reconnects == 1
+    assert stats.last_disconnect_reason == "repeated server shutdown"
+
+
+async def test_server_shutdowns_more_than_60_s_apart_both_reconnect_immediately(monkeypatch):
+    stats = RuntimeStats()
+    times = iter([100.0, 161.0])
+    connect_factory, connections = shutdown_then_blocking(2)
+    client = make_client(connect_factory, stats=stats, clock=lambda: next(times))
+
+    delays = await run_until_connections(client, connections, 3, monkeypatch)
+
+    assert delays == []
+    assert stats.server_shutdowns == 2
+    assert stats.reconnects == 0

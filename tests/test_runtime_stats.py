@@ -277,6 +277,7 @@ def test_status_returns_expected_fields(client):
         "status": "stopped",
         "connected_since": None,
         "reconnects": 0,
+        "server_shutdowns": 0,
         "last_disconnect_at": None,
         "last_disconnect_reason": None,
     }

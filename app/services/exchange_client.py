@@ -6,6 +6,7 @@ import random
 import sys
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal
@@ -225,7 +226,17 @@ def parse_kline(data: dict[str, Any], allowed: set[str] | None = None) -> KlineU
     )
 
 
-def parse_message(raw: str, allowed: set[str]) -> MarketTicker | RollingChange | KlineUpdate | None:
+@dataclass(frozen=True)
+class ServerShutdown:
+    """Binance is about to shut the server down and asks clients to reconnect right away."""
+
+    event_time: datetime | None
+
+
+ExchangeEvent = MarketTicker | RollingChange | KlineUpdate | ServerShutdown
+
+
+def parse_message(raw: str, allowed: set[str]) -> ExchangeEvent | None:
     try:
         message = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -251,6 +262,8 @@ def parse_message(raw: str, allowed: set[str]) -> MarketTicker | RollingChange |
         return parse_rolling_ticker(data, allowed)
     if event_type == "kline":
         return parse_kline(data, allowed)
+    if event_type == "serverShutdown":
+        return ServerShutdown(event_time=_to_datetime(data.get("E")))
     return None
 
 
@@ -271,6 +284,10 @@ def build_stream_url(
 
 def compute_backoff(attempt: int, initial: float, maximum: float) -> float:
     return min(initial * 2**attempt, maximum)
+
+
+class ServerShutdownError(Exception):
+    """Raised inside the receive loop to leave the connection after a serverShutdown event."""
 
 
 class ExchangeUnavailableError(Exception):
@@ -420,6 +437,10 @@ def connect_to_binance(url: str) -> connect:
 class BinanceStreamClient:
     """One shared connection to Binance combined streams, with automatic reconnect."""
 
+    # Binance allows 300 new connections per 5 minutes per IP; a second serverShutdown within
+    # this many seconds falls back to the normal backoff so a shutdown loop cannot burn it.
+    SERVER_SHUTDOWN_COOLDOWN_SECONDS = 60.0
+
     def __init__(
         self,
         url: str,
@@ -434,6 +455,7 @@ class BinanceStreamClient:
         on_status_change: StatusCallback | None = None,
         on_rolling: RollingCallback | None = None,
         stats: RuntimeStats | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.url = url
         self.on_ticker = on_ticker
@@ -446,11 +468,13 @@ class BinanceStreamClient:
         self.reconnect_initial_delay = reconnect_initial_delay
         self.reconnect_max_delay = reconnect_max_delay
         self.stats = stats or RuntimeStats()
+        self.clock = clock
 
         self.status: ClientStatus = "stopped"
         self.last_message_at: datetime | None = None
         self._stop_event = asyncio.Event()
         self._connection: Any = None
+        self._last_server_shutdown_at: float | None = None
 
     async def run(self) -> None:
         self._stop_event.clear()
@@ -458,6 +482,7 @@ class BinanceStreamClient:
         attempt = 0
         while not self._stop_event.is_set():
             reason = "connection closed"
+            server_shutdown = False
             try:
                 async with self.connect_factory(self.url) as connection:
                     self._connection = connection
@@ -467,6 +492,10 @@ class BinanceStreamClient:
                     await self._receive_loop(connection)
             except asyncio.CancelledError:
                 raise
+            except ServerShutdownError:
+                # Leaving the `async with` has already closed the connection.
+                server_shutdown = True
+                reason = "server shutdown"
             except Exception as exc:
                 if self._stop_event.is_set():
                     break
@@ -476,6 +505,14 @@ class BinanceStreamClient:
 
             if self._stop_event.is_set():
                 break
+            if server_shutdown:
+                self.stats.record_server_shutdown()
+                if self._shutdown_allows_immediate_reconnect():
+                    self.stats.record_disconnect(reason)
+                    await self._set_status("reconnecting")
+                    logger.info("Binance server is shutting down; reconnecting immediately")
+                    continue
+                reason = "repeated server shutdown"
             self.stats.record_disconnect(reason)
             await self._set_status("reconnecting")
             delay = compute_backoff(attempt, self.reconnect_initial_delay, self.reconnect_max_delay)
@@ -493,6 +530,12 @@ class BinanceStreamClient:
 
         await self._set_status("stopped")
         logger.info("Binance stream client stopped")
+
+    def _shutdown_allows_immediate_reconnect(self) -> bool:
+        now = self.clock()
+        previous = self._last_server_shutdown_at
+        self._last_server_shutdown_at = now
+        return previous is None or now - previous > self.SERVER_SHUTDOWN_COOLDOWN_SECONDS
 
     async def stop(self) -> None:
         self._stop_event.set()
@@ -539,6 +582,8 @@ class BinanceStreamClient:
             # Invalid JSON, a failed check (logged by the parser) or an unknown event type.
             self.stats.record_rejected_message()
             return
+        if isinstance(event, ServerShutdown):
+            raise ServerShutdownError
         self.stats.record_pair_message(event.symbol)
         try:
             if isinstance(event, MarketTicker):
