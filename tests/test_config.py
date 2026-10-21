@@ -23,6 +23,7 @@ def test_default_values():
     assert settings.receive_timeout_seconds == 30
     assert settings.rolling_windows == ["1h", "4h"]
     assert settings.spread_warning_percent == Decimal("0.5")
+    assert settings.candle_retention_days == 30
 
 
 def test_spread_warning_percent_from_env(monkeypatch):

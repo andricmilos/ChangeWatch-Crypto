@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .env
 data/*.db
+data/*.db-wal
+data/*.db-shm
 .pytest_cache/
 .ruff_cache/
 .idea/

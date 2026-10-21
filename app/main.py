@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -78,7 +79,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     service.subscribe(candle_service.handle_event)
     service.subscribe(alert_service.handle_event)
     await service.start()
+    cleanup_task = asyncio.create_task(
+        candle_service.run_cleanup(get_settings().candle_retention_days)
+    )
+    app.state.candle_cleanup_task = cleanup_task
     yield
+    cleanup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await cleanup_task
     await service.stop()
     await rest_client.close()
 

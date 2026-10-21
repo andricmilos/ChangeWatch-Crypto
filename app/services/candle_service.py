@@ -1,8 +1,10 @@
+import asyncio
 import logging
 import time
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 STORED_INTERVAL = "1m"
 PRICE_COLUMNS = ("open_price", "high_price", "low_price", "close_price", "volume")
+CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
 
 
 def _to_row(candle: KlineUpdate) -> dict[str, object]:
@@ -139,3 +142,29 @@ class CandleService:
         async with self.session_factory() as session:
             rows = (await session.scalars(query)).all()
         return [_from_row(row) for row in reversed(rows)]
+
+    async def delete_old_candles(self, retention_days: int, now: datetime | None = None) -> int:
+        """Deletes candles that opened more than `retention_days` ago; returns how many."""
+        cutoff = (now or datetime.now(UTC)) - timedelta(days=retention_days)
+        # No VACUUM afterwards: it locks the whole database, and SQLite reuses the freed pages.
+        statement = delete(Candle).where(Candle.open_time < datetime_to_ms(cutoff))
+        async with self.session_factory() as session:
+            result = await session.execute(statement)
+            await session.commit()
+        return result.rowcount
+
+    async def run_cleanup(
+        self, retention_days: int, interval_seconds: float = CLEANUP_INTERVAL_SECONDS
+    ) -> None:
+        """Background task: delete old candles now and then every `interval_seconds`."""
+        while True:
+            try:
+                deleted = await self.delete_old_candles(retention_days)
+            # Any failure is logged and retried on the next run; the app keeps running.
+            except Exception:
+                self.stats.record_cleanup_failed()
+                logger.exception("Failed to delete candles older than %d days", retention_days)
+            else:
+                self.stats.record_cleanup(deleted)
+                logger.info("Deleted %d candle(s) older than %d days", deleted, retention_days)
+            await asyncio.sleep(interval_seconds)

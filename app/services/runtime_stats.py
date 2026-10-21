@@ -78,6 +78,9 @@ class RuntimeStats:
 
         self.candles_written = 0
         self.db_write_errors = 0
+        self.last_cleanup_at: datetime | None = None
+        self.last_cleanup_result: str | None = None
+        self.last_cleanup_deleted: int | None = None
 
         self.alerts_triggered = 0
 
@@ -135,6 +138,16 @@ class RuntimeStats:
     def record_db_write_error(self) -> None:
         self.db_write_errors += 1
 
+    def record_cleanup(self, deleted: int) -> None:
+        self.last_cleanup_at = self.wall_clock()
+        self.last_cleanup_result = "ok"
+        self.last_cleanup_deleted = deleted
+
+    def record_cleanup_failed(self) -> None:
+        self.last_cleanup_at = self.wall_clock()
+        self.last_cleanup_result = "error"
+        self.last_cleanup_deleted = None
+
     def record_alert_triggered(self) -> None:
         self.alerts_triggered += 1
 
@@ -168,6 +181,9 @@ class RuntimeStats:
             "database": {
                 "candles_written": self.candles_written,
                 "write_errors": self.db_write_errors,
+                "last_cleanup_at": self.last_cleanup_at,
+                "last_cleanup_result": self.last_cleanup_result,
+                "last_cleanup_deleted": self.last_cleanup_deleted,
             },
             "alerts": {"triggered": self.alerts_triggered},
         }

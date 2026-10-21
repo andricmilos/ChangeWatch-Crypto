@@ -295,7 +295,13 @@ def test_status_returns_expected_fields(client):
         "ADAEUR",
     ]
     assert body["browsers"] == {"connected": 0, "messages_sent": 0, "send_failures": 0}
-    assert body["database"] == {"candles_written": 0, "write_errors": 0}
+    assert body["database"] == {
+        "candles_written": 0,
+        "write_errors": 0,
+        "last_cleanup_at": None,
+        "last_cleanup_result": None,
+        "last_cleanup_deleted": None,
+    }
     assert body["alerts"] == {"active": 0, "triggered": 0}
 
 

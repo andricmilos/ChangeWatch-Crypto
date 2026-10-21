@@ -2,9 +2,14 @@ from collections.abc import AsyncIterator
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import String, TypeDecorator
+from sqlalchemy import String, TypeDecorator, event
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
@@ -29,7 +34,30 @@ class DecimalString(TypeDecorator):
         return None if value is None else Decimal(value)
 
 
+def enable_sqlite_pragmas(engine: AsyncEngine) -> None:
+    """Applies the SQLite settings on every new connection (PRAGMAs are per connection)."""
+    if engine.dialect.name != "sqlite":
+        return
+    # An in-memory database has no file for a write-ahead log, so WAL is skipped there.
+    in_memory = engine.url.database in (None, "", ":memory:")
+
+    def on_connect(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            if not in_memory:
+                # Readers no longer wait for the writer (live candles, alerts) and vice versa.
+                cursor.execute("PRAGMA journal_mode=WAL")
+            # Safe with WAL: a power loss can drop the last commits, never corrupt the file.
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+        finally:
+            cursor.close()
+
+    event.listen(engine.sync_engine, "connect", on_connect)
+
+
 engine = create_async_engine(settings.database_url)
+enable_sqlite_pragmas(engine)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     rolling_windows: list[str] = ["1h", "4h"]
     # Spread (in % of the mid price) above which a market is flagged as less liquid.
     spread_warning_percent: Decimal = Decimal("0.5")
+    # Stored 1m candles older than this are deleted by the periodic cleanup.
+    candle_retention_days: int = 30
 
     @field_validator("supported_symbols")
     @classmethod
@@ -41,6 +43,13 @@ class Settings(BaseSettings):
         if unknown:
             raise ValueError(f"Unsupported rolling windows {unknown}; use 1h and/or 4h")
         return windows
+
+    @field_validator("candle_retention_days")
+    @classmethod
+    def check_candle_retention_days(cls, days: int) -> int:
+        if days <= 0:
+            raise ValueError("candle_retention_days must be greater than 0")
+        return days
 
 
 @lru_cache
