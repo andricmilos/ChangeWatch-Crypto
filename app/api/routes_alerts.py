@@ -9,6 +9,7 @@ from app.api.dependencies import get_alert_service
 from app.api.rate_limit import write_limiter
 from app.models import PriceAlert
 from app.schemas.alert import AlertCreate, AlertOut, AlertUpdate
+from app.schemas.error import RATE_LIMITED, error_response, validation_error
 from app.services.alert_service import AlertService
 from app.services.exchange_client import quote_asset, to_display_symbol
 
@@ -25,21 +26,60 @@ RateLimited = [Depends(write_limiter)]
 
 MAX_ACTIVE_ALERTS = 50
 TOO_MANY_ALERTS = f"Najviše {MAX_ACTIVE_ALERTS} aktivnih alerta; obriši ili isključi neki"
+ALERT_NOT_FOUND = error_response("No alert with this id.", "Alert ne postoji")
 
 
-@router.get("", response_model=list[AlertOut])
+@router.get(
+    "",
+    response_model=list[AlertOut],
+    summary="List price alerts",
+    description="All alerts, or only active (active=true) or inactive (active=false) ones.",
+    responses={422: validation_error("active is not a boolean.")},
+)
 async def list_alerts(alert_service: Alerts, active: bool | None = None) -> list[PriceAlert]:
     return await alert_service.list_alerts(active)
 
 
-@router.post("", response_model=AlertOut, status_code=201, dependencies=RateLimited)
+@router.post(
+    "",
+    response_model=AlertOut,
+    status_code=201,
+    dependencies=RateLimited,
+    summary="Create a price alert",
+    description=(
+        "Fires once when the live price reaches the target. "
+        f"At most {MAX_ACTIVE_ALERTS} alerts can be active at a time."
+    ),
+    responses={
+        400: error_response(f"Already {MAX_ACTIVE_ALERTS} active alerts.", TOO_MANY_ALERTS),
+        422: validation_error(
+            "Unsupported symbol, unknown condition, or a target price not greater than 0 "
+            "or with more than 8 decimals."
+        ),
+        429: RATE_LIMITED,
+    },
+)
 async def create_alert(payload: AlertCreate, alert_service: Alerts) -> PriceAlert:
     if alert_service.active_count() >= MAX_ACTIVE_ALERTS:
         raise HTTPException(status_code=400, detail=TOO_MANY_ALERTS)
     return await alert_service.create(payload)
 
 
-@router.patch("/{alert_id}", response_model=AlertOut, dependencies=RateLimited)
+@router.patch(
+    "/{alert_id}",
+    response_model=AlertOut,
+    dependencies=RateLimited,
+    summary="Update a price alert",
+    description=(
+        "Turns an alert on or off or changes its target price. "
+        "Turning a fired alert back on clears triggered_at."
+    ),
+    responses={
+        404: ALERT_NOT_FOUND,
+        422: validation_error("Non-integer id or invalid target price."),
+        429: RATE_LIMITED,
+    },
+)
 async def update_alert(alert_id: int, payload: AlertUpdate, alert_service: Alerts) -> PriceAlert:
     alert = await alert_service.update(alert_id, payload)
     if alert is None:
@@ -47,7 +87,18 @@ async def update_alert(alert_id: int, payload: AlertUpdate, alert_service: Alert
     return alert
 
 
-@router.delete("/{alert_id}", status_code=204, dependencies=RateLimited)
+@router.delete(
+    "/{alert_id}",
+    status_code=204,
+    dependencies=RateLimited,
+    summary="Delete a price alert",
+    description="Deletes the alert; the response has no body.",
+    responses={
+        404: ALERT_NOT_FOUND,
+        422: validation_error("Non-integer id."),
+        429: RATE_LIMITED,
+    },
+)
 async def delete_alert(alert_id: int, alert_service: Alerts) -> Response:
     if not await alert_service.delete(alert_id):
         raise HTTPException(status_code=404, detail="Alert ne postoji")

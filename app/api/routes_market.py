@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.dependencies import get_candle_service, get_market_service, normalize_symbol
+from app.schemas.error import EXCHANGE_UNAVAILABLE, UNKNOWN_SYMBOL, validation_or_error
 from app.schemas.market import CandleOut, MarketsResponse, MarketView
 from app.services.candle_service import CandleService
 from app.services.exchange_client import datetime_to_ms
@@ -50,7 +51,15 @@ def to_market_view(market: dict[str, Any], spread_warning_percent: Decimal) -> M
     )
 
 
-@router.get("", response_model=MarketsResponse)
+@router.get(
+    "",
+    response_model=MarketsResponse,
+    summary="List all markets",
+    description=(
+        "Latest prices, 24h statistics and spread for every supported pair, from the live "
+        "Binance stream. Prices are null until the first ticker arrives."
+    ),
+)
 async def list_markets(service: MarketService) -> MarketsResponse:
     snapshot = service.snapshot()
     return MarketsResponse(
@@ -62,14 +71,36 @@ async def list_markets(service: MarketService) -> MarketsResponse:
     )
 
 
-@router.get("/{symbol}", response_model=MarketView)
+@router.get(
+    "/{symbol}",
+    response_model=MarketView,
+    summary="Get one market",
+    description=(
+        "Same data as the market list, for one pair. "
+        "The symbol may be written as BTCEUR, btceur, BTC-EUR or BTC/EUR."
+    ),
+    responses={404: UNKNOWN_SYMBOL},
+)
 async def get_market(symbol: str, service: MarketService) -> MarketView:
     normalized = normalize_symbol(symbol, service.settings.supported_symbols)
     market = next(m for m in service.snapshot()["markets"] if m["symbol"] == normalized)
     return to_market_view(market, service.settings.spread_warning_percent)
 
 
-@router.get("/{symbol}/candles", response_model=list[CandleOut])
+@router.get(
+    "/{symbol}/candles",
+    response_model=list[CandleOut],
+    summary="Get candles for the chart",
+    description=(
+        "OHLCV candles from Binance, oldest first, cached for 15 seconds. When Binance is "
+        "unreachable, 1m candles come from the local database; other intervals return 503."
+    ),
+    responses={
+        404: UNKNOWN_SYMBOL,
+        422: validation_or_error("Unsupported interval, or limit outside 1–1000."),
+        503: EXCHANGE_UNAVAILABLE,
+    },
+)
 async def get_candles(
     symbol: str,
     service: MarketService,

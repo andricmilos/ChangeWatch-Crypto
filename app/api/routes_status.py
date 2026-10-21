@@ -8,6 +8,7 @@ from app.api.dependencies import (
     get_market_service,
     get_runtime_stats,
 )
+from app.schemas.status import StatusResponse
 from app.services.alert_service import AlertService
 from app.services.market_data_service import MarketDataService
 from app.services.runtime_stats import RuntimeStats
@@ -21,7 +22,17 @@ Manager = Annotated[ConnectionManager, Depends(get_connection_manager)]
 Alerts = Annotated[AlertService, Depends(get_alert_service)]
 
 
-@router.get("")
+# The model documents the shape only (responses, not response_model): serializing through
+# it would change the datetime format from "+00:00" to "Z" for existing clients.
+@router.get(
+    "",
+    summary="Runtime diagnostics",
+    description=(
+        "Counters and states from memory: Binance connection, message rates, per-pair "
+        "freshness, connected browsers, database writes and alerts."
+    ),
+    responses={200: {"model": StatusResponse}},
+)
 async def get_status(
     stats: Stats, service: MarketService, manager: Manager, alert_service: Alerts
 ) -> dict[str, Any]:

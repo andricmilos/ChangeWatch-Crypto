@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from app import __version__
 from app.api.dependencies import get_market_service
 from app.api.routes_alerts import partials_router as alerts_partials_router
 from app.api.routes_alerts import router as alerts_router
@@ -82,7 +83,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await rest_client.close()
 
 
-app = FastAPI(title="ChangeWatch Crypto", lifespan=lifespan)
+API_DESCRIPTION = """
+Live prices for EUR crypto pairs from Binance, with a watchlist, price alerts, a currency
+converter and a historical value calculator.
+
+**Informational only.** ChangeWatch Crypto shows market data; it does not place orders,
+hold funds or execute trades.
+
+Prices and amounts are decimal strings (e.g. `"72309.76"`) so no precision is lost.
+Live updates are also pushed over the WebSocket at `/ws/market`.
+"""
+
+OPENAPI_TAGS = [
+    {"name": "markets", "description": "Live prices, 24h statistics and chart candles."},
+    {"name": "convert", "description": "Convert amounts between EUR and crypto at live prices."},
+    {
+        "name": "history",
+        "description": "What an amount invested in the past would be worth today.",
+    },
+    {"name": "watchlist", "description": "Pairs the user follows, stored in the database."},
+    {"name": "alerts", "description": "Price alerts that fire once when a target is reached."},
+    {"name": "status", "description": "Runtime diagnostics of the server."},
+]
+
+app = FastAPI(
+    title="ChangeWatch Crypto",
+    version=__version__,
+    description=API_DESCRIPTION,
+    openapi_tags=OPENAPI_TAGS,
+    lifespan=lifespan,
+)
 app.add_middleware(RequestTimingMiddleware)
 app.include_router(market_router)
 app.include_router(convert_router)
@@ -116,7 +146,7 @@ templates = Jinja2Templates(directory="app/templates")
 MarketService = Annotated[MarketDataService, Depends(get_market_service)]
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def dashboard(request: Request, service: MarketService) -> HTMLResponse:
     # Only the pair list is rendered on the server; prices arrive over /ws/market.
     pairs = [
@@ -129,7 +159,8 @@ async def dashboard(request: Request, service: MarketService) -> HTMLResponse:
     )
 
 
-@app.get("/health")
+# Hidden from /docs: it is for the deploy platform's health checks, not for API clients.
+@app.get("/health", include_in_schema=False)
 async def health(service: MarketService) -> dict[str, Any]:
     client = service.client
     seconds_since_last_message = None

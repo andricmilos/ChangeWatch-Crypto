@@ -1,14 +1,17 @@
 from datetime import datetime
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.dependencies import normalize_symbol
 from app.config import get_settings
 
 
 class WatchlistCreate(BaseModel):
-    symbol: str
+    symbol: str = Field(
+        description="Supported pair; btceur, BTC-EUR and BTC/EUR are accepted too.",
+        examples=["BTCEUR"],
+    )
 
     @field_validator("symbol")
     @classmethod
@@ -23,6 +26,8 @@ class WatchlistCreate(BaseModel):
 class WatchlistItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
-    symbol: str
-    created_at: datetime
+    id: int = Field(description="Item id; grows in the order pairs were added.", examples=[1])
+    symbol: str = Field(description="Pair in Binance format.", examples=["BTCEUR"])
+    created_at: datetime = Field(
+        description="When the pair was added.", examples=["2026-10-21T14:05:12Z"]
+    )
