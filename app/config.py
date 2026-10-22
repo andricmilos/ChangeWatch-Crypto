@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     spread_warning_percent: Decimal = Decimal("0.5")
     # Stored 1m candles older than this are deleted by the periodic cleanup.
     candle_retention_days: int = 30
+    # False makes chart notes read-only, e.g. for a public demo where anyone could edit them.
+    notes_write_enabled: bool = True
 
     @field_validator("supported_symbols")
     @classmethod
