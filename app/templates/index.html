@@ -107,6 +107,9 @@
             <button type="button" class="toggle" data-chart-type="candles" aria-pressed="true">Sveće</button>
             <button type="button" class="toggle" data-chart-type="line" aria-pressed="false">Linija</button>
           </div>
+          <button type="button" id="note-add" class="note-button" aria-pressed="false" hidden>
+            Dodaj belešku
+          </button>
         </div>
       </div>
       <div class="chart-wrap">
@@ -114,8 +117,31 @@
         <div id="chart-message" class="chart-message" hidden></div>
         <div id="chart-stale" class="chart-stale" role="status" hidden>Podaci nisu aktuelni</div>
       </div>
+      <p id="note-pick-hint" class="note-hint" role="status" hidden>
+        Klikni na sveću za vreme beleške (Escape za izlaz).
+      </p>
+      <form id="note-form" class="note-form" hidden>
+        <p class="note-form-time">
+          <span id="note-form-local"></span>
+          <span id="note-form-utc" class="note-muted"></span>
+        </p>
+        <div class="note-form-row">
+          <input id="note-form-text" type="text" autocomplete="off" aria-label="Tekst beleške"
+                 placeholder="Tekst beleške">
+          <span id="note-form-count" class="note-count" aria-live="polite">0/280</span>
+          <button type="submit" class="note-button">Sačuvaj</button>
+          <button type="button" id="note-form-cancel" class="note-button">Otkaži</button>
+        </div>
+        <p id="note-form-error" class="note-error" role="alert" hidden></p>
+      </form>
       <ul id="chart-notes" class="chart-notes" aria-label="Beleške za sveću" hidden></ul>
       <p class="chart-note">Vreme je prikazano u UTC.</p>
+      <div class="notes-panel">
+        <h3>Beleške za <span id="notes-panel-symbol">—</span></h3>
+        <p id="notes-panel-error" class="note-error" role="alert" hidden></p>
+        <p id="notes-panel-empty" class="note-muted">Nema beleški u prikazanom periodu.</p>
+        <ul id="notes-panel-list" class="notes-panel-list"></ul>
+      </div>
     </section>
 
     <section class="panel panel-watchlist">

@@ -9,6 +9,8 @@
 // Notes (/api/notes) load after the history of the same loadId and follow the same rules:
 // note messages that arrive while notes are loading are buffered and applied afterwards.
 // A note is drawn on the candle that contains it; note text is only ever set via textContent.
+// Adding, editing and deleting only send the request: the list and the markers change when
+// the note_* message comes back over the WebSocket, so there is one path for every change.
 
 const chartPanel = (() => {
   const elements = {
@@ -19,6 +21,20 @@ const chartPanel = (() => {
     intervalButtons: document.querySelectorAll("[data-interval]"),
     typeButtons: document.querySelectorAll("[data-chart-type]"),
     notes: document.getElementById("chart-notes"),
+    noteAdd: document.getElementById("note-add"),
+    pickHint: document.getElementById("note-pick-hint"),
+    form: document.getElementById("note-form"),
+    formLocal: document.getElementById("note-form-local"),
+    formUtc: document.getElementById("note-form-utc"),
+    formText: document.getElementById("note-form-text"),
+    formCount: document.getElementById("note-form-count"),
+    formCancel: document.getElementById("note-form-cancel"),
+    formSubmit: document.querySelector("#note-form [type=submit]"),
+    formError: document.getElementById("note-form-error"),
+    panelSymbol: document.getElementById("notes-panel-symbol"),
+    panelError: document.getElementById("notes-panel-error"),
+    panelEmpty: document.getElementById("notes-panel-empty"),
+    panelList: document.getElementById("notes-panel-list"),
   };
 
   const INTERVAL_MS = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000 };
@@ -28,6 +44,20 @@ const chartPanel = (() => {
     dateStyle: "short",
     timeStyle: "short",
   });
+  const localTimeFormat = new Intl.DateTimeFormat("sr-Latn-RS", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+  const NOTE_MAX_LENGTH = 280;
+  // Substrings of the server's English validation messages -> text for the user.
+  const VALIDATION_MESSAGES = [
+    ["HTML", "Tekst ne sme da sadrži HTML oznake."],
+    ["must not be empty", "Tekst ne sme biti prazan."],
+    ["at most", `Tekst može imati najviše ${NOTE_MAX_LENGTH} znakova.`],
+    ["in the future", "Izabrano vreme je u budućnosti."],
+    ["older than 1 year", "Izabrano vreme je starije od godinu dana."],
+    ["Unsupported symbol", "Ovaj par nije podržan."],
+  ];
 
   const state = {
     symbol: null,
@@ -44,6 +74,16 @@ const chartPanel = (() => {
     noteBuffer: [],
     // Candle time under the crosshair, so the note list follows live note changes.
     hoverTime: null,
+    // Until /api/notes/config answers, the UI is read-only.
+    writeEnabled: false,
+    picking: false,
+    pickedMs: null,
+    saving: false,
+    editingId: null,
+    editDraft: "",
+    confirmingId: null,
+    // Note whose PATCH or DELETE is in flight; its buttons are disabled meanwhile.
+    pendingId: null,
   };
 
   function showMessage(text) {
@@ -170,6 +210,7 @@ const chartPanel = (() => {
     state.notesLoading = true;
     state.noteBuffer = [];
     renderNoteList([]);
+    renderNotePanel();
   }
 
   function isNoteForChart(note) {
@@ -203,6 +244,7 @@ const chartPanel = (() => {
       console.warn(`Could not load notes for ${symbol}`, error);
       state.notesLoading = false;
       state.noteBuffer = [];
+      showPanelError("Beleške trenutno nisu dostupne.");
       return;
     }
     if (loadId !== state.loadId) return;
@@ -213,7 +255,9 @@ const chartPanel = (() => {
     const buffered = state.noteBuffer;
     state.noteBuffer = [];
     for (const message of buffered) applyNoteMessage(message);
+    showPanelError(null);
     renderNotes();
+    renderNotePanel();
   }
 
   function handleNoteMessage(message) {
@@ -225,11 +269,326 @@ const chartPanel = (() => {
     if (state.notesFromMs === null) return;
     applyNoteMessage(message);
     renderNotes();
+    renderNotePanel();
   }
 
   function handleCrosshairMove(param) {
     state.hoverTime = param.time ?? null;
     renderNoteList(notesByCandle().get(state.hoverTime) ?? []);
+  }
+
+  // ---------- Adding, editing and deleting notes ----------
+
+  // The server counts code points (Python len), not UTF-16 units, so "😀" is one character.
+  function noteLength(text) {
+    return [...text.trim()].length;
+  }
+
+  // Message for the user if the text would be rejected anyway, otherwise null.
+  function checkNoteText(text) {
+    if (text.trim() === "") return "Tekst ne sme biti prazan.";
+    if (noteLength(text) > NOTE_MAX_LENGTH) {
+      return `Tekst može imati najviše ${NOTE_MAX_LENGTH} znakova.`;
+    }
+    return null;
+  }
+
+  async function errorMessage(response) {
+    if (response.status === 429) {
+      const seconds = response.headers.get("Retry-After");
+      return seconds
+        ? `Previše zahteva. Pokušaj ponovo za ${seconds} s.`
+        : "Previše zahteva. Pokušaj ponovo malo kasnije.";
+    }
+    let detail = null;
+    try {
+      ({ detail } = await response.json());
+    } catch (error) {
+      console.warn(`Note request failed with HTTP ${response.status} and no JSON body`, error);
+    }
+    if (response.status === 422 && Array.isArray(detail)) {
+      const messages = detail.map((item) => {
+        const match = VALIDATION_MESSAGES.find(([key]) => String(item.msg).includes(key));
+        return match ? match[1] : "Podaci beleške nisu ispravni.";
+      });
+      return [...new Set(messages)].join(" ");
+    }
+    // 400, 403, 404 and the route's own 422 carry a detail written for the user.
+    if (typeof detail === "string") return detail;
+    return `Zahtev nije uspeo (HTTP ${response.status}).`;
+  }
+
+  // Returns null on success, otherwise a message for the user.
+  async function sendNoteRequest(url, options) {
+    let response;
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      console.warn(`Note request to ${url} failed`, error);
+      return "Server nije dostupan. Pokušaj ponovo.";
+    }
+    return response.ok ? null : errorMessage(response);
+  }
+
+  function jsonRequest(method, body) {
+    return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  }
+
+  function showFormError(message) {
+    elements.formError.textContent = message ?? "";
+    elements.formError.hidden = message === null;
+  }
+
+  function showPanelError(message) {
+    elements.panelError.textContent = message ?? "";
+    elements.panelError.hidden = message === null;
+  }
+
+  function setPicking(picking) {
+    state.picking = picking;
+    elements.noteAdd.setAttribute("aria-pressed", String(picking));
+    elements.container.classList.toggle("is-picking", picking);
+    elements.pickHint.hidden = !picking;
+  }
+
+  function handleChartClick(param) {
+    // param.time is only set when the click hits a candle.
+    if (!state.picking || !Number.isInteger(param.time)) return;
+    setPicking(false);
+    openNoteForm(param.time * 1000);
+  }
+
+  function updateNoteCount() {
+    const length = noteLength(elements.formText.value);
+    elements.formCount.textContent = `${length}/${NOTE_MAX_LENGTH}`;
+    elements.formCount.classList.toggle("is-over", length > NOTE_MAX_LENGTH);
+  }
+
+  function openNoteForm(timeMs) {
+    // Picking another moment while the form is open keeps the text typed so far.
+    if (elements.form.hidden) elements.formText.value = "";
+    state.pickedMs = timeMs;
+    elements.formLocal.textContent = `${localTimeFormat.format(timeMs)} (lokalno)`;
+    elements.formUtc.textContent = `${noteTimeFormat.format(timeMs)} UTC`;
+    updateNoteCount();
+    showFormError(null);
+    elements.form.hidden = false;
+    elements.formText.focus();
+  }
+
+  function closeNoteForm() {
+    state.pickedMs = null;
+    elements.form.hidden = true;
+    showFormError(null);
+  }
+
+  async function saveNewNote() {
+    if (state.saving || state.pickedMs === null) return;
+    const text = elements.formText.value;
+    const invalid = checkNoteText(text);
+    if (invalid !== null) {
+      showFormError(invalid);
+      return;
+    }
+    state.saving = true;
+    elements.formSubmit.disabled = true;
+    const body = { symbol: state.symbol, time_ms: state.pickedMs, text: text.trim() };
+    const error = await sendNoteRequest("/api/notes", jsonRequest("POST", body));
+    state.saving = false;
+    elements.formSubmit.disabled = false;
+    if (error === null) {
+      closeNoteForm();
+    } else {
+      showFormError(error);
+    }
+  }
+
+  function startEdit(note) {
+    state.editingId = note.id;
+    state.editDraft = note.text;
+    state.confirmingId = null;
+    showPanelError(null);
+    renderNotePanel({ focusEdit: true });
+  }
+
+  function stopEdit() {
+    state.editingId = null;
+    showPanelError(null);
+    renderNotePanel();
+  }
+
+  async function saveEdit() {
+    const id = state.editingId;
+    if (id === null || state.pendingId !== null) return;
+    const invalid = checkNoteText(state.editDraft);
+    if (invalid !== null) {
+      showPanelError(invalid);
+      return;
+    }
+    const text = state.editDraft.trim();
+    if (text === state.notes.get(id)?.text) {
+      stopEdit();
+      return;
+    }
+    state.pendingId = id;
+    renderNotePanel();
+    const error = await sendNoteRequest(`/api/notes/${id}`, jsonRequest("PATCH", { text }));
+    state.pendingId = null;
+    if (error === null && state.editingId === id) state.editingId = null;
+    showPanelError(error);
+    renderNotePanel({ focusEdit: error !== null });
+  }
+
+  async function deleteNote(id) {
+    if (state.pendingId !== null) return;
+    state.pendingId = id;
+    renderNotePanel();
+    const error = await sendNoteRequest(`/api/notes/${id}`, { method: "DELETE" });
+    state.pendingId = null;
+    if (error === null) state.confirmingId = null;
+    showPanelError(error);
+    renderNotePanel();
+  }
+
+  // Centers the chart on the note's candle and keeps the current zoom.
+  function scrollToNote(note) {
+    const timeScale = chart.timeScale();
+    const range = timeScale.getVisibleRange();
+    if (range === null) return;
+    const time = candleTime(note.time_ms);
+    const half = (range.to - range.from) / 2;
+    timeScale.setVisibleRange({ from: time - half, to: time + half });
+  }
+
+  function smallButton(label, onClick, disabled) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "note-button";
+    button.textContent = label;
+    button.disabled = disabled;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function noteTimeElement(note) {
+    const time = document.createElement("time");
+    time.dateTime = new Date(note.time_ms).toISOString();
+    time.textContent = noteTimeFormat.format(note.time_ms);
+    return time;
+  }
+
+  function editInput(pending) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "note-edit-input";
+    input.autocomplete = "off";
+    input.setAttribute("aria-label", "Novi tekst beleške");
+    input.value = state.editDraft;
+    input.readOnly = pending;
+    input.addEventListener("input", () => {
+      state.editDraft = input.value;
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        saveEdit();
+      } else if (event.key === "Escape") {
+        // Must not also leave the add-note mode through the document handler.
+        event.stopPropagation();
+        stopEdit();
+      }
+    });
+    return input;
+  }
+
+  function notePanelItem(note) {
+    const item = document.createElement("li");
+    const pending = state.pendingId !== null;
+
+    if (state.editingId === note.id) {
+      item.append(
+        noteTimeElement(note),
+        editInput(pending),
+        smallButton("Sačuvaj", saveEdit, pending),
+        smallButton("Otkaži", stopEdit, pending),
+      );
+      return item;
+    }
+
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "note-item-main";
+    main.title = "Prikaži na grafikonu";
+    const text = document.createElement("span");
+    // textContent, never innerHTML: note text is user input.
+    text.textContent = note.text;
+    main.append(noteTimeElement(note), text);
+    main.addEventListener("click", () => scrollToNote(note));
+    item.append(main);
+    if (!state.writeEnabled) return item;
+
+    if (state.confirmingId === note.id) {
+      const question = document.createElement("span");
+      question.className = "note-confirm";
+      question.textContent = "Obrisati belešku?";
+      item.append(
+        question,
+        smallButton("Obriši", () => deleteNote(note.id), pending),
+        smallButton("Ne", () => {
+          state.confirmingId = null;
+          renderNotePanel();
+        }, pending),
+      );
+    } else {
+      item.append(
+        smallButton("Izmeni", () => startEdit(note), pending),
+        smallButton("Obriši", () => {
+          state.confirmingId = note.id;
+          state.editingId = null;
+          showPanelError(null);
+          renderNotePanel();
+        }, pending),
+      );
+    }
+    return item;
+  }
+
+  function renderNotePanel({ focusEdit = false } = {}) {
+    // Someone else may have deleted the note that is being edited or confirmed.
+    if (!state.notes.has(state.editingId)) state.editingId = null;
+    if (!state.notes.has(state.confirmingId)) state.confirmingId = null;
+    if (!state.writeEnabled) {
+      state.editingId = null;
+      state.confirmingId = null;
+    }
+
+    // A live note message rebuilds the list; the edit field must keep focus and caret.
+    const active = document.activeElement;
+    const hadFocus = active instanceof HTMLInputElement && active.classList.contains("note-edit-input");
+    const selection = hadFocus ? [active.selectionStart, active.selectionEnd] : null;
+
+    const notes = [...state.notes.values()].sort((a, b) => b.time_ms - a.time_ms || b.id - a.id);
+    elements.panelList.replaceChildren(...notes.map(notePanelItem));
+    elements.panelEmpty.hidden = notes.length > 0;
+
+    const input = elements.panelList.querySelector(".note-edit-input");
+    if (input === null || !(hadFocus || focusEdit)) return;
+    input.focus();
+    if (selection !== null) input.setSelectionRange(...selection);
+  }
+
+  async function loadNotesConfig() {
+    try {
+      const response = await fetch("/api/notes/config");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const config = await response.json();
+      state.writeEnabled = config.write_enabled === true;
+    } catch (error) {
+      console.warn("Could not load the notes config; notes stay read-only", error);
+      state.writeEnabled = false;
+    }
+    elements.noteAdd.hidden = !state.writeEnabled;
+    renderNotePanel();
   }
 
   async function loadHistory(symbol, interval) {
@@ -287,6 +646,11 @@ const chartPanel = (() => {
     if (symbol === state.symbol) return;
     state.symbol = symbol;
     elements.symbol.textContent = displaySymbol;
+    elements.panelSymbol.textContent = displaySymbol;
+    // A picked moment or half-typed note belongs to the previous pair.
+    setPicking(false);
+    closeNoteForm();
+    showPanelError(null);
     reload();
   }
 
@@ -336,7 +700,26 @@ const chartPanel = (() => {
     button.addEventListener("click", () => setChartType(button.dataset.chartType));
   }
 
+  elements.noteAdd.addEventListener("click", () => setPicking(!state.picking));
+  elements.formText.addEventListener("input", updateNoteCount);
+  elements.formText.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    closeNoteForm();
+  });
+  elements.formCancel.addEventListener("click", closeNoteForm);
+  // Enter in the text field submits the form.
+  elements.form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveNewNote();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && state.picking) setPicking(false);
+  });
+
   chart.subscribeCrosshairMove(handleCrosshairMove);
+  chart.subscribeClick(handleChartClick);
+  loadNotesConfig();
 
   return { select, handleKline, handleNoteMessage, setStale };
 })();

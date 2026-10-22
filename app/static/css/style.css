@@ -454,6 +454,156 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+/* Chart notes: adding and editing */
+
+.note-button {
+  padding: 5px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.note-button[aria-pressed="true"] {
+  background: #1f2a3d;
+  border-color: #58a6ff;
+}
+
+.note-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.note-button[hidden],
+.note-hint[hidden],
+.note-form[hidden],
+.note-error[hidden],
+.note-muted[hidden] {
+  display: none;
+}
+
+/* The chart's canvases set their own cursor, so it is overridden on every child. */
+#chart.is-picking,
+#chart.is-picking * {
+  cursor: crosshair !important;
+}
+
+.note-hint {
+  margin: 8px 0 0;
+  color: var(--yellow);
+}
+
+.note-muted {
+  color: var(--muted);
+}
+
+.note-form {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--yellow);
+  border-radius: 6px;
+}
+
+.note-form-time {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.note-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+#note-form-text,
+.note-edit-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 5px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.note-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.note-count.is-over {
+  color: var(--red);
+}
+
+.note-error {
+  margin: 6px 0 0;
+  color: var(--red);
+}
+
+.notes-panel {
+  margin-top: 16px;
+}
+
+.notes-panel h3 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.notes-panel-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notes-panel-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.notes-panel-list time {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.note-item-main {
+  display: flex;
+  flex: 1 1 220px;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  color: var(--text);
+  border: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  font: inherit;
+}
+
+.note-item-main:hover span {
+  color: #58a6ff;
+}
+
+.note-confirm {
+  color: var(--yellow);
+}
+
 /* Footer */
 
 .footer {
