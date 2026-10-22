@@ -486,6 +486,11 @@ function handleMessage(message) {
       markLiveData();
       chartPanel.handleKline(message.data);
       break;
+    case "note_created":
+    case "note_updated":
+    case "note_deleted":
+      chartPanel.handleNoteMessage(message);
+      break;
     case "alert_triggered":
       handleAlertTriggered(message.data);
       break;

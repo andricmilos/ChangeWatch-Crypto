@@ -427,6 +427,33 @@ h2 {
   font-size: 12px;
 }
 
+.chart-notes {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--yellow);
+  border-radius: 6px;
+}
+
+.chart-notes[hidden] {
+  display: none;
+}
+
+.chart-notes li {
+  display: flex;
+  gap: 10px;
+  overflow-wrap: anywhere;
+}
+
+.chart-notes time {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Footer */
 
 .footer {
