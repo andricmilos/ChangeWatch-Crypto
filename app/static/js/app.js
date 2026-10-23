@@ -449,6 +449,7 @@ function showAlertToast(alert) {
 
 function handleAlertTriggered(alert) {
   showAlertToast(alert);
+  chartPanel.handleAlertTriggered(alert);
   // The server renders the list, so reloading it moves the alert to "Okinuti".
   htmx.ajax("GET", "/partials/alerts", { target: "#alerts-list" });
 }

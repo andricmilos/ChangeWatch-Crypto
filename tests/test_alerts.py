@@ -396,6 +396,162 @@ def test_missing_alert_returns_404(client, method, kwargs):
     assert getattr(client, method)("/api/alerts/999", **kwargs).status_code == 404
 
 
+# ---------- Fired alerts of a pair in a period (chart markers) ----------
+
+# 2025-10-13T18:40:00Z in UTC milliseconds, the same moment as START.
+START_MS = 1_760_380_800_000
+
+
+async def add_fired_alert(
+    session_factory,
+    triggered_at: datetime | None,
+    symbol: str = "BTCEUR",
+    condition: str = "above",
+    is_active: bool = False,
+) -> int:
+    alert = PriceAlert(
+        symbol=symbol,
+        target_price=Decimal("75000"),
+        condition=condition,
+        is_active=is_active,
+        triggered_at=triggered_at,
+        triggered_price=None if triggered_at is None else Decimal("75010.5"),
+    )
+    async with session_factory() as session:
+        session.add(alert)
+        await session.commit()
+    return alert.id
+
+
+def fired_ids(client, **params) -> list[int]:
+    response = client.get("/api/alerts", params=params)
+    assert response.status_code == 200, response.text
+    return [alert["id"] for alert in response.json()]
+
+
+async def test_fired_alerts_filter_by_pair_and_period_oldest_first(client, session_factory):
+    late = await add_fired_alert(session_factory, START + timedelta(minutes=2))
+    early = await add_fired_alert(session_factory, START + timedelta(minutes=1), condition="below")
+    await add_fired_alert(session_factory, START + timedelta(minutes=1), symbol="SOLEUR")
+    await add_fired_alert(session_factory, START - timedelta(minutes=1))
+    await add_fired_alert(session_factory, START + timedelta(hours=1))
+    await add_fired_alert(session_factory, None, is_active=True)
+
+    ids = fired_ids(
+        client,
+        symbol="btc-eur",
+        triggered_from_ms=START_MS,
+        triggered_to_ms=START_MS + 10 * 60_000,
+    )
+
+    assert ids == [early, late]
+
+
+async def test_fired_alerts_without_end_include_everything_after_start(client, session_factory):
+    await add_fired_alert(session_factory, START - timedelta(seconds=1))
+    first = await add_fired_alert(session_factory, START + timedelta(days=1))
+    second = await add_fired_alert(session_factory, START + timedelta(days=2))
+    await add_fired_alert(session_factory, None, is_active=True)
+
+    assert fired_ids(client, symbol="BTCEUR", triggered_from_ms=START_MS) == [first, second]
+
+
+async def test_fired_alerts_period_bounds_are_inclusive_to_the_millisecond(client, session_factory):
+    at_start = await add_fired_alert(session_factory, START)
+    # 999 µs into the last millisecond still belongs to triggered_to_ms.
+    at_end = await add_fired_alert(session_factory, START + timedelta(seconds=1, microseconds=999))
+    await add_fired_alert(session_factory, START - timedelta(microseconds=1))
+    await add_fired_alert(session_factory, START + timedelta(seconds=1, milliseconds=1))
+
+    ids = fired_ids(
+        client, symbol="BTCEUR", triggered_from_ms=START_MS, triggered_to_ms=START_MS + 1000
+    )
+
+    assert ids == [at_start, at_end]
+
+
+async def test_fired_alerts_with_equal_bounds_return_that_millisecond(client, session_factory):
+    exact = await add_fired_alert(session_factory, START + timedelta(microseconds=500))
+
+    ids = fired_ids(client, symbol="BTCEUR", triggered_from_ms=START_MS, triggered_to_ms=START_MS)
+
+    assert ids == [exact]
+
+
+async def test_fired_alerts_at_the_same_moment_keep_creation_order(client, session_factory):
+    first = await add_fired_alert(session_factory, START)
+    second = await add_fired_alert(session_factory, START, condition="below")
+
+    assert fired_ids(client, symbol="BTCEUR", triggered_from_ms=START_MS) == [first, second]
+
+
+async def test_fired_alerts_period_returns_full_alert(client, session_factory):
+    await add_fired_alert(session_factory, START)
+
+    [alert] = client.get(
+        "/api/alerts", params={"symbol": "BTCEUR", "triggered_from_ms": START_MS}
+    ).json()
+
+    assert alert["condition"] == "above"
+    assert alert["triggered_price"] == "75010.5"
+    assert alert["display_symbol"] == "BTC/EUR"
+
+
+def test_fired_alerts_from_after_to_returns_422(client):
+    response = client.get(
+        "/api/alerts",
+        params={"symbol": "BTCEUR", "triggered_from_ms": 2, "triggered_to_ms": 1},
+    )
+
+    assert response.status_code == 422
+    assert "triggered_from_ms" in response.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"triggered_from_ms": "abc"},
+        {"triggered_to_ms": "1.5"},
+        {"triggered_from_ms": -1},
+        # Past datetime's year 9999, which would otherwise overflow into a 500.
+        {"triggered_to_ms": 253_402_300_800_000},
+    ],
+)
+def test_fired_alerts_invalid_time_returns_422(client, params):
+    assert client.get("/api/alerts", params={"symbol": "BTCEUR", **params}).status_code == 422
+
+
+def test_fired_alerts_at_the_largest_time_do_not_fail(client):
+    response = client.get(
+        "/api/alerts",
+        params={"triggered_from_ms": 0, "triggered_to_ms": 253_402_300_799_999},
+    )
+
+    assert response.status_code == 200
+
+
+def test_alerts_of_unknown_symbol_return_404(client):
+    assert client.get("/api/alerts", params={"symbol": "DOGEEUR"}).status_code == 404
+
+
+async def test_symbol_alone_filters_by_pair_and_keeps_order(client, session_factory):
+    first = await add_fired_alert(session_factory, None, is_active=True)
+    await add_fired_alert(session_factory, None, symbol="SOLEUR", is_active=True)
+    fired = await add_fired_alert(session_factory, START)
+
+    assert fired_ids(client, symbol="BTCEUR") == [fired, first]
+
+
+async def test_list_without_new_parameters_is_unchanged(client, session_factory):
+    active = await add_fired_alert(session_factory, None, is_active=True)
+    fired = await add_fired_alert(session_factory, START, symbol="SOLEUR")
+    disabled = await add_fired_alert(session_factory, None, symbol="ETHEUR")
+
+    # Every alert, newest first, whether it fired or not.
+    assert fired_ids(client) == [disabled, fired, active]
+    assert fired_ids(client, active="false") == [disabled, fired]
+
+
 # ---------- HTMX partials ----------
 
 

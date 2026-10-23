@@ -107,6 +107,10 @@
             <button type="button" class="toggle" data-chart-type="candles" aria-pressed="true">Sveće</button>
             <button type="button" class="toggle" data-chart-type="line" aria-pressed="false">Linija</button>
           </div>
+          <div class="button-group" role="group" aria-label="Markeri na grafikonu">
+            <button type="button" class="toggle" data-marker-kind="notes" aria-pressed="true">Beleške</button>
+            <button type="button" class="toggle" data-marker-kind="alerts" aria-pressed="true">Alerti</button>
+          </div>
           <button type="button" id="note-add" class="note-button" aria-pressed="false" hidden>
             Dodaj belešku
           </button>
@@ -134,7 +138,7 @@
         </div>
         <p id="note-form-error" class="note-error" role="alert" hidden></p>
       </form>
-      <ul id="chart-notes" class="chart-notes" aria-label="Beleške za sveću" hidden></ul>
+      <ul id="chart-notes" class="chart-notes" aria-label="Beleške i alerti za sveću" hidden></ul>
       <p class="chart-note">Vreme je prikazano u UTC.</p>
       <div class="notes-panel">
         <h3>Beleške za <span id="notes-panel-symbol">—</span></h3>

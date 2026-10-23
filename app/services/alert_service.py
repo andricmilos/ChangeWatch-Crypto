@@ -56,10 +56,36 @@ class AlertService:
     def active_count(self) -> int:
         return sum(len(alerts) for alerts in self._active.values())
 
-    async def list_alerts(self, active: bool | None = None) -> list[PriceAlert]:
+    async def list_alerts(
+        self, active: bool | None = None, symbol: str | None = None
+    ) -> list[PriceAlert]:
         query = select(PriceAlert).order_by(PriceAlert.id.desc())
         if active is not None:
             query = query.where(PriceAlert.is_active == active)
+        if symbol is not None:
+            query = query.where(PriceAlert.symbol == symbol)
+        async with self.session_factory() as session:
+            return list(await session.scalars(query))
+
+    async def list_triggered(
+        self,
+        symbol: str | None,
+        start: datetime | None,
+        end: datetime | None,
+        active: bool | None = None,
+    ) -> list[PriceAlert]:
+        """Fired alerts with start <= triggered_at <= end, oldest first."""
+        query = select(PriceAlert).where(PriceAlert.triggered_at.is_not(None))
+        if symbol is not None:
+            query = query.where(PriceAlert.symbol == symbol)
+        if start is not None:
+            query = query.where(PriceAlert.triggered_at >= start)
+        if end is not None:
+            query = query.where(PriceAlert.triggered_at <= end)
+        if active is not None:
+            query = query.where(PriceAlert.is_active == active)
+        # id breaks ties, so alerts fired by the same tick keep the order they were made in.
+        query = query.order_by(PriceAlert.triggered_at, PriceAlert.id)
         async with self.session_factory() as session:
             return list(await session.scalars(query))
 

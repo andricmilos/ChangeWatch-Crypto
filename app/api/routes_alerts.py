@@ -1,17 +1,25 @@
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError
 
-from app.api.dependencies import get_alert_service
+from app.api.dependencies import get_alert_service, get_market_service, normalize_symbol
 from app.api.rate_limit import write_limiter
 from app.models import PriceAlert
 from app.schemas.alert import AlertCreate, AlertOut, AlertUpdate
-from app.schemas.error import RATE_LIMITED, error_response, validation_error
+from app.schemas.error import (
+    RATE_LIMITED,
+    UNKNOWN_SYMBOL,
+    error_response,
+    validation_error,
+    validation_or_error,
+)
 from app.services.alert_service import AlertService
 from app.services.exchange_client import quote_asset, to_display_symbol
+from app.services.market_data_service import MarketDataService
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 partials_router = APIRouter(prefix="/partials", include_in_schema=False)
@@ -22,22 +30,73 @@ templates.env.filters["display_symbol"] = to_display_symbol
 templates.env.filters["quote_asset"] = lambda symbol: quote_asset(symbol) or ""
 
 Alerts = Annotated[AlertService, Depends(get_alert_service)]
+MarketService = Annotated[MarketDataService, Depends(get_market_service)]
 RateLimited = [Depends(write_limiter)]
 
 MAX_ACTIVE_ALERTS = 50
 TOO_MANY_ALERTS = f"Najviše {MAX_ACTIVE_ALERTS} aktivnih alerta; obriši ili isključi neki"
 ALERT_NOT_FOUND = error_response("No alert with this id.", "Alert ne postoji")
 
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+# 9999-12-31T23:59:59.999Z; anything larger would overflow datetime and end in a 500.
+MAX_TIME_MS = 253_402_300_799_999
+LAST_MICROSECONDS = timedelta(microseconds=999)
+TriggeredMs = Annotated[
+    int | None,
+    Query(ge=0, le=MAX_TIME_MS, description="UTC milliseconds, inclusive."),
+]
+
+
+def from_ms(ms: int) -> datetime:
+    # timedelta keeps whole milliseconds exact, unlike datetime.fromtimestamp(ms / 1000).
+    return EPOCH + timedelta(milliseconds=ms)
+
 
 @router.get(
     "",
     response_model=list[AlertOut],
     summary="List price alerts",
-    description="All alerts, or only active (active=true) or inactive (active=false) ones.",
-    responses={422: validation_error("active is not a boolean.")},
+    description=(
+        "All alerts (newest first), or only active (active=true) or inactive (active=false) "
+        "ones. symbol limits the list to one pair. With triggered_from_ms or triggered_to_ms "
+        "only fired alerts in that period are returned, sorted by triggered_at (oldest first)."
+    ),
+    responses={
+        404: UNKNOWN_SYMBOL,
+        422: validation_or_error(
+            "active is not a boolean, a time is not an integer in range, or "
+            "triggered_from_ms > triggered_to_ms."
+        ),
+    },
 )
-async def list_alerts(alert_service: Alerts, active: bool | None = None) -> list[PriceAlert]:
-    return await alert_service.list_alerts(active)
+async def list_alerts(
+    alert_service: Alerts,
+    service: MarketService,
+    active: bool | None = None,
+    symbol: str | None = None,
+    triggered_from_ms: TriggeredMs = None,
+    triggered_to_ms: TriggeredMs = None,
+) -> list[PriceAlert]:
+    normalized = (
+        None if symbol is None else normalize_symbol(symbol, service.settings.supported_symbols)
+    )
+    if (
+        triggered_from_ms is not None
+        and triggered_to_ms is not None
+        and triggered_from_ms > triggered_to_ms
+    ):
+        raise HTTPException(
+            status_code=422, detail="triggered_from_ms mora biti manje ili jednako triggered_to_ms"
+        )
+    if triggered_from_ms is None and triggered_to_ms is None:
+        return await alert_service.list_alerts(active, normalized)
+    return await alert_service.list_triggered(
+        normalized,
+        None if triggered_from_ms is None else from_ms(triggered_from_ms),
+        # triggered_at has microseconds; the whole triggered_to_ms millisecond counts.
+        None if triggered_to_ms is None else from_ms(triggered_to_ms) + LAST_MICROSECONDS,
+        active,
+    )
 
 
 @router.post(

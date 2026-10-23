@@ -11,6 +11,8 @@
 // A note is drawn on the candle that contains it; note text is only ever set via textContent.
 // Adding, editing and deleting only send the request: the list and the markers change when
 // the note_* message comes back over the WebSocket, so there is one path for every change.
+// Fired alerts (/api/alerts) load next to the notes with the same loadId, buffering and candle
+// rules, and alert_triggered adds a marker live. Notes and alerts share one markers object.
 
 const chartPanel = (() => {
   const elements = {
@@ -21,6 +23,7 @@ const chartPanel = (() => {
     intervalButtons: document.querySelectorAll("[data-interval]"),
     typeButtons: document.querySelectorAll("[data-chart-type]"),
     notes: document.getElementById("chart-notes"),
+    markerButtons: document.querySelectorAll("[data-marker-kind]"),
     noteAdd: document.getElementById("note-add"),
     pickHint: document.getElementById("note-pick-hint"),
     form: document.getElementById("note-form"),
@@ -39,6 +42,12 @@ const chartPanel = (() => {
 
   const INTERVAL_MS = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000 };
   const MARKER_COLOR = "#d29922";
+  const ALERT_COLOR = "#a371f7";
+  const MARKERS_STORAGE_KEY = "changewatch.chartMarkers";
+  const ALERT_SHAPES = {
+    above: { arrow: "▲", word: "iznad", position: "belowBar", shape: "arrowUp" },
+    below: { arrow: "▼", word: "ispod", position: "aboveBar", shape: "arrowDown" },
+  };
   const noteTimeFormat = new Intl.DateTimeFormat("sr-Latn-RS", {
     timeZone: "UTC",
     dateStyle: "short",
@@ -72,7 +81,14 @@ const chartPanel = (() => {
     notesFromMs: null,
     notesLoading: false,
     noteBuffer: [],
-    // Candle time under the crosshair, so the note list follows live note changes.
+    // id -> fired alert of the selected pair (with time_ms added), from alertsFromMs onwards.
+    alerts: new Map(),
+    alertsFromMs: null,
+    alertsLoading: false,
+    alertBuffer: [],
+    // Which markers the toggles above the chart show; remembered in localStorage.
+    show: { notes: true, alerts: true },
+    // Candle time under the crosshair, so the hover list follows live note and alert changes.
     hoverTime: null,
     // Until /api/notes/config answers, the UI is read-only.
     writeEnabled: false,
@@ -94,7 +110,13 @@ const chartPanel = (() => {
   if (typeof LightweightCharts === "undefined") {
     showMessage("Biblioteka za grafikone nije učitana.");
     console.error("LightweightCharts is not available; the chart is disabled");
-    return { select() {}, handleKline() {}, handleNoteMessage() {}, setStale() {} };
+    return {
+      select() {},
+      handleKline() {},
+      handleNoteMessage() {},
+      handleAlertTriggered() {},
+      setStale() {},
+    };
   }
 
   const { createChart, createSeriesMarkers, CandlestickSeries, LineSeries } = LightweightCharts;
@@ -151,57 +173,102 @@ const chartPanel = (() => {
     const newCandle = bar.time !== state.lastBarTime;
     series.update(bar);
     state.lastBarTime = bar.time;
-    // A note in a candle that had not started yet gets its marker once the candle exists.
-    if (newCandle && state.notes.size > 0) renderNotes();
+    // A note or alert in a candle that had not started yet gets its marker once the candle exists.
+    if (newCandle && (state.notes.size > 0 || state.alerts.size > 0)) renderMarkers();
   }
 
-  // ---------- Notes ----------
+  // ---------- Markers (notes and fired alerts) ----------
 
-  // candle time -> notes in that candle, oldest first. Candles not on the chart are left out.
-  function notesByCandle() {
-    const sorted = [...state.notes.values()].sort((a, b) => a.time_ms - b.time_ms || a.id - b.id);
+  const EMPTY_GROUP = { notes: [], alerts: [] };
+
+  // candle time -> shown notes and alerts in that candle, each oldest first.
+  // Candles not on the chart are left out.
+  function markersByCandle() {
     const groups = new Map();
-    for (const note of sorted) {
-      const time = candleTime(note.time_ms);
-      if (state.lastBarTime === null || time > state.lastBarTime) continue;
-      if (!groups.has(time)) groups.set(time, []);
-      groups.get(time).push(note);
+    function add(kind, item) {
+      const time = candleTime(item.time_ms);
+      if (state.lastBarTime === null || time > state.lastBarTime) return;
+      if (!groups.has(time)) groups.set(time, { notes: [], alerts: [] });
+      groups.get(time)[kind].push(item);
+    }
+    const byTime = (a, b) => a.time_ms - b.time_ms || a.id - b.id;
+    if (state.show.notes) {
+      for (const note of [...state.notes.values()].sort(byTime)) add("notes", note);
+    }
+    if (state.show.alerts) {
+      for (const alert of [...state.alerts.values()].sort(byTime)) add("alerts", alert);
     }
     return groups;
   }
 
-  function renderNotes() {
-    const groups = notesByCandle();
-    // Map keys keep the order of the time-sorted notes, so markers are sorted ascending.
-    markers.setMarkers(
-      [...groups].map(([time, notes]) => ({
-        time,
-        position: "aboveBar",
-        shape: "circle",
-        color: MARKER_COLOR,
-        text: notes.length > 1 ? String(notes.length) : "",
-      })),
-    );
-    renderNoteList(groups.get(state.hoverTime) ?? []);
+  function noteMarker(time, notes) {
+    return {
+      time,
+      position: "aboveBar",
+      shape: "circle",
+      color: MARKER_COLOR,
+      text: notes.length > 1 ? String(notes.length) : "",
+    };
   }
 
-  function renderNoteList(notes) {
-    const items = notes.map((note) => {
+  function alertMarker(time, alert) {
+    const { arrow, position, shape } = ALERT_SHAPES[alert.condition];
+    const text = `${arrow} ${formatEuro(alert.triggered_price)}`;
+    return { time, position, shape, color: ALERT_COLOR, text };
+  }
+
+  // formatPrice() comes from app.js, which loads after this file; it only runs once data arrives.
+  function formatEuro(value) {
+    return `${formatPrice(value)} €`;
+  }
+
+  function renderMarkers() {
+    const groups = markersByCandle();
+    const list = [];
+    for (const [time, { notes, alerts }] of groups) {
+      if (notes.length > 0) list.push(noteMarker(time, notes));
+      for (const alert of alerts) list.push(alertMarker(time, alert));
+    }
+    // Notes and alerts come from two sorted lists; the library needs one ascending list.
+    // The sort is stable, so within a candle the note marker stays before the alerts.
+    list.sort((a, b) => a.time - b.time);
+    markers.setMarkers(list);
+    renderHoverList(groups.get(state.hoverTime) ?? EMPTY_GROUP);
+  }
+
+  function hoverTime(ms) {
+    const time = document.createElement("time");
+    time.dateTime = new Date(ms).toISOString();
+    time.textContent = noteTimeFormat.format(ms);
+    return time;
+  }
+
+  function renderHoverList({ notes, alerts }) {
+    const noteItems = notes.map((note) => {
       const item = document.createElement("li");
-      const time = document.createElement("time");
-      time.dateTime = new Date(note.time_ms).toISOString();
-      time.textContent = noteTimeFormat.format(note.time_ms);
       const text = document.createElement("span");
       // textContent, never innerHTML: note text is user input.
       text.textContent = note.text;
-      item.append(time, text);
+      item.append(hoverTime(note.time_ms), text);
       return item;
     });
+    const alertItems = alerts.map((alert) => {
+      const item = document.createElement("li");
+      item.className = "is-alert";
+      const { arrow, word } = ALERT_SHAPES[alert.condition];
+      const text = document.createElement("span");
+      text.textContent =
+        `${arrow} Alert ${word} ${formatEuro(alert.target_price)} — ` +
+        `okinut na ${formatEuro(alert.triggered_price)}`;
+      item.append(hoverTime(alert.time_ms), text);
+      return item;
+    });
+    const items = [...noteItems, ...alertItems];
     elements.notes.replaceChildren(...items);
     elements.notes.hidden = items.length === 0;
   }
 
-  function resetNotes() {
+  function resetMarkers() {
     // Every load starts a new markers object; the old one must not stay on the series.
     markers.detach();
     markers = createSeriesMarkers(series, []);
@@ -209,9 +276,111 @@ const chartPanel = (() => {
     state.notesFromMs = null;
     state.notesLoading = true;
     state.noteBuffer = [];
-    renderNoteList([]);
+    state.alerts = new Map();
+    state.alertsFromMs = null;
+    state.alertsLoading = true;
+    state.alertBuffer = [];
+    renderHoverList(EMPTY_GROUP);
     renderNotePanel();
   }
+
+  function stopMarkerLoading() {
+    state.notesLoading = false;
+    state.noteBuffer = [];
+    state.alertsLoading = false;
+    state.alertBuffer = [];
+  }
+
+  function renderMarkerButtons() {
+    for (const button of elements.markerButtons) {
+      button.setAttribute("aria-pressed", String(state.show[button.dataset.markerKind]));
+    }
+  }
+
+  function loadMarkerToggles() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(MARKERS_STORAGE_KEY));
+      for (const kind of Object.keys(state.show)) {
+        if (typeof saved?.[kind] === "boolean") state.show[kind] = saved[kind];
+      }
+    } catch (error) {
+      console.warn("Could not read the saved chart marker toggles", error);
+    }
+    renderMarkerButtons();
+  }
+
+  function toggleMarkers(kind) {
+    state.show[kind] = !state.show[kind];
+    try {
+      localStorage.setItem(MARKERS_STORAGE_KEY, JSON.stringify(state.show));
+    } catch (error) {
+      console.warn("Could not save the chart marker toggles", error);
+    }
+    renderMarkerButtons();
+    renderMarkers();
+  }
+
+  // ---------- Fired alerts ----------
+
+  // SQLite drops the time zone, so triggered_at may come without an offset; it is always UTC.
+  function parseUtc(iso) {
+    return Date.parse(/(Z|[+-]\d\d:\d\d)$/i.test(iso) ? iso : `${iso}Z`);
+  }
+
+  function isAlertForChart(alert, timeMs) {
+    return (
+      alert.symbol === state.symbol &&
+      state.alertsFromMs !== null &&
+      Number.isFinite(timeMs) &&
+      timeMs >= state.alertsFromMs
+    );
+  }
+
+  function applyAlert(alert) {
+    if (alert.triggered_at === null || !(alert.condition in ALERT_SHAPES)) return;
+    const timeMs = parseUtc(alert.triggered_at);
+    if (isAlertForChart(alert, timeMs)) state.alerts.set(alert.id, { ...alert, time_ms: timeMs });
+  }
+
+  async function loadAlerts(symbol, loadId, fromMs) {
+    let alerts;
+    try {
+      // No triggered_to_ms: like notes, the range stays open while live candles extend it.
+      const params = new URLSearchParams({ symbol, triggered_from_ms: String(fromMs) });
+      const response = await fetch(`/api/alerts?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      alerts = await response.json();
+    } catch (error) {
+      if (loadId !== state.loadId) return;
+      // The chart and notes still work; only the alert markers are missing.
+      console.warn(`Could not load fired alerts for ${symbol}`, error);
+      state.alertsLoading = false;
+      state.alertBuffer = [];
+      return;
+    }
+    if (loadId !== state.loadId) return;
+
+    state.alertsFromMs = fromMs;
+    state.alerts = new Map();
+    for (const alert of alerts) applyAlert(alert);
+    state.alertsLoading = false;
+    const buffered = state.alertBuffer;
+    state.alertBuffer = [];
+    for (const alert of buffered) applyAlert(alert);
+    renderMarkers();
+  }
+
+  function handleAlertTriggered(alert) {
+    if (state.alertsLoading) {
+      state.alertBuffer.push(alert);
+      return;
+    }
+    if (state.alertsFromMs === null) return;
+    applyAlert(alert);
+    renderMarkers();
+  }
+
+  // ---------- Notes ----------
 
   function isNoteForChart(note) {
     return (
@@ -256,7 +425,7 @@ const chartPanel = (() => {
     state.noteBuffer = [];
     for (const message of buffered) applyNoteMessage(message);
     showPanelError(null);
-    renderNotes();
+    renderMarkers();
     renderNotePanel();
   }
 
@@ -268,13 +437,13 @@ const chartPanel = (() => {
     // Without a loaded range (no candles or a failed load) there is nothing to draw on.
     if (state.notesFromMs === null) return;
     applyNoteMessage(message);
-    renderNotes();
+    renderMarkers();
     renderNotePanel();
   }
 
   function handleCrosshairMove(param) {
     state.hoverTime = param.time ?? null;
-    renderNoteList(notesByCandle().get(state.hoverTime) ?? []);
+    renderHoverList(markersByCandle().get(state.hoverTime) ?? EMPTY_GROUP);
   }
 
   // ---------- Adding, editing and deleting notes ----------
@@ -597,7 +766,7 @@ const chartPanel = (() => {
     state.buffer = [];
     state.lastBarTime = null;
     series.setData([]);
-    resetNotes();
+    resetMarkers();
     showMessage("Učitavanje grafikona…");
 
     let candles;
@@ -611,8 +780,7 @@ const chartPanel = (() => {
       console.warn(`Could not load candles for ${symbol} ${interval}`, error);
       state.loading = false;
       state.buffer = [];
-      state.notesLoading = false;
-      state.noteBuffer = [];
+      stopMarkerLoading();
       showMessage("Istorija sveća trenutno nije dostupna.");
       return;
     }
@@ -631,10 +799,11 @@ const chartPanel = (() => {
     for (const bar of buffered) applyBar(bar);
 
     if (bars.length > 0) {
-      loadNotes(symbol, loadId, bars[0].time * 1000);
+      const fromMs = bars[0].time * 1000;
+      loadNotes(symbol, loadId, fromMs);
+      loadAlerts(symbol, loadId, fromMs);
     } else {
-      state.notesLoading = false;
-      state.noteBuffer = [];
+      stopMarkerLoading();
     }
   }
 
@@ -699,6 +868,9 @@ const chartPanel = (() => {
   for (const button of elements.typeButtons) {
     button.addEventListener("click", () => setChartType(button.dataset.chartType));
   }
+  for (const button of elements.markerButtons) {
+    button.addEventListener("click", () => toggleMarkers(button.dataset.markerKind));
+  }
 
   elements.noteAdd.addEventListener("click", () => setPicking(!state.picking));
   elements.formText.addEventListener("input", updateNoteCount);
@@ -719,7 +891,8 @@ const chartPanel = (() => {
 
   chart.subscribeCrosshairMove(handleCrosshairMove);
   chart.subscribeClick(handleChartClick);
+  loadMarkerToggles();
   loadNotesConfig();
 
-  return { select, handleKline, handleNoteMessage, setStale };
+  return { select, handleKline, handleNoteMessage, handleAlertTriggered, setStale };
 })();

@@ -454,6 +454,11 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+/* Same purple as the alert markers in chart.js, so the row matches its arrow. */
+.chart-notes li.is-alert {
+  color: #a371f7;
+}
+
 /* Chart notes: adding and editing */
 
 .note-button {

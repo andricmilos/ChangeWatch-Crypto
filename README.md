@@ -12,6 +12,24 @@ An alert created while its condition is already met fires on the next ticker. Th
 expected: alerts are checked when new market data arrives, not when they are created.
 Stale or missing prices never fire an alert.
 
+## Chart notes and fired alerts
+
+![BTC/EUR chart with note and alert markers](docs/images/chart-markers.png)
+
+The chart shows two kinds of markers on the candle they belong to:
+
+- **Notes** (yellow dot): short comments pinned to a moment, added with "Dodaj belešku".
+  Several notes in one candle show their count.
+- **Fired alerts** (purple arrow): ▲ for "above", ▼ for "below", labelled with the price
+  that fired the alert, e.g. "▲ 72.818,76 €". An alert that fires while the chart is open
+  appears at once, without a reload.
+
+Hovering a candle lists its notes and alerts below the chart. The "Beleške" and "Alerti"
+toggles above the chart hide or show each kind; the choice is remembered in the browser.
+Fired alerts of a pair in a period come from
+`GET /api/alerts?symbol=BTCEUR&triggered_from_ms=...&triggered_to_ms=...` (UTC milliseconds,
+both inclusive and optional, oldest first).
+
 ## Limitations
 
 - Chart notes (`/api/notes`) are shared by every visitor: there are no accounts, so anyone
