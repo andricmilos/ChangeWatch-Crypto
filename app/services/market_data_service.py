@@ -18,6 +18,7 @@ from app.services.runtime_stats import RuntimeStats
 logger = logging.getLogger(__name__)
 
 Freshness = Literal["live", "stale", "no_data"]
+PriceSource = Literal["ws", "rest"]
 MarketEvent = dict[str, Any]
 Subscriber = Callable[[MarketEvent], Awaitable[None]]
 
@@ -67,6 +68,9 @@ class MarketDataService:
         self._last_update_at: dict[str, datetime] = {}
         self._subscribers: list[Subscriber] = []
         self._task: asyncio.Task[None] | None = None
+        # "rest" while RestFallbackPoller feeds prices because the stream is down.
+        self.price_source: PriceSource = "ws"
+        self._rest_polled_at: datetime | None = None
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self.client.run())
@@ -115,7 +119,34 @@ class MarketDataService:
         await self._notify({"type": "kline", "data": kline})
 
     async def handle_status(self, status: ClientStatus) -> None:
-        await self._notify({"type": "status", "data": {"connection_status": status}})
+        if status == "connected":
+            self.price_source = "ws"
+        await self._notify_status()
+
+    async def handle_rest_tickers(self, tickers: list[MarketTicker]) -> None:
+        """One successful REST fallback round: the same path as stream tickers."""
+        # The stream can come back while the request is in flight; its data then wins and
+        # the older REST tickers are dropped by the event_time check in handle_ticker.
+        if self.client.status != "connected":
+            # Set before the tickers go out, so alerts already see these prices as live.
+            self.price_source = "rest"
+            self._rest_polled_at = datetime.now(UTC)
+        for ticker in tickers:
+            await self.handle_ticker(ticker)
+        if self.price_source == "rest":
+            # Also a heartbeat: a quiet round with no changed price must not look stale.
+            await self._notify_status()
+
+    async def _notify_status(self) -> None:
+        await self._notify(
+            {
+                "type": "status",
+                "data": {
+                    "connection_status": self.client.status,
+                    "price_source": self.price_source,
+                },
+            }
+        )
 
     def freshness(self, symbol: str, now: datetime | None = None) -> Freshness:
         if symbol not in self._tickers:
@@ -123,9 +154,15 @@ class MarketDataService:
         # Binance only sends a ticker when something changes, so a quiet pair (e.g. ADAEUR,
         # minutes between trades) can go long without a message while its price is still
         # current. Freshness therefore follows the shared connection (any stream), not the
-        # last message for this one pair.
-        last_message_at = self.client.last_message_at
-        if self.client.status != "connected" or last_message_at is None:
+        # last message for this one pair. While the stream is down, a successful REST
+        # fallback round plays the same role as a stream message.
+        if self.client.status == "connected":
+            last_message_at = self.client.last_message_at
+        elif self.price_source == "rest":
+            last_message_at = self._rest_polled_at
+        else:
+            return "stale"
+        if last_message_at is None:
             return "stale"
         age = (now or datetime.now(UTC)) - last_message_at
         if age.total_seconds() > self.settings.stale_after_seconds:
@@ -145,7 +182,11 @@ class MarketDataService:
             }
             for symbol in self.settings.supported_symbols
         ]
-        return {"connection_status": self.client.status, "markets": markets}
+        return {
+            "connection_status": self.client.status,
+            "price_source": self.price_source,
+            "markets": markets,
+        }
 
     def _rolling_percent(self, symbol: str, window: str) -> Decimal | None:
         change = self._rolling.get((symbol, window))

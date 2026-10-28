@@ -75,7 +75,8 @@ h2 {
   background: var(--green);
 }
 
-.indicator-connecting .dot {
+.indicator-connecting .dot,
+.indicator-fallback .dot {
   background: var(--yellow);
 }
 

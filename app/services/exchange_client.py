@@ -84,16 +84,18 @@ def _to_datetime(value: Any) -> datetime | None:
 SPREAD_PERCENT_STEP = Decimal("0.001")
 
 
-def _parse_bid_ask(data: dict[str, Any], symbol: str) -> tuple[Decimal | None, Decimal | None]:
-    """Best bid ("b") and ask ("a"); both None when either is unusable or the book is crossed."""
-    bid = _to_positive_decimal(data.get("b"))
-    ask = _to_positive_decimal(data.get("a"))
+def _parse_bid_ask(
+    data: dict[str, Any], symbol: str, bid_key: str = "b", ask_key: str = "a"
+) -> tuple[Decimal | None, Decimal | None]:
+    """Best bid and ask; both None when either is unusable or the book is crossed."""
+    bid = _to_positive_decimal(data.get(bid_key))
+    ask = _to_positive_decimal(data.get(ask_key))
     if bid is None or ask is None:
         logger.warning(
             "Dropping bid/ask for %s: invalid bid %r or ask %r",
             symbol,
-            data.get("b"),
-            data.get("a"),
+            data.get(bid_key),
+            data.get(ask_key),
         )
         return None, None
     if ask < bid:
@@ -141,6 +143,52 @@ def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> Marke
         spread=ask_price - bid_price if has_book else None,
         spread_percent=spread_percent(bid_price, ask_price) if has_book else None,
         event_time=event_time,
+    )
+
+
+def parse_rest_ticker(data: Any, allowed: set[str] | None = None) -> MarketTicker | None:
+    """One /api/v3/ticker/24hr entry, checked by the same rules as the WebSocket ticker."""
+    if not isinstance(data, dict):
+        logger.warning("Ignoring REST ticker that is not a JSON object")
+        return None
+
+    symbol = data.get("symbol")
+    if not isinstance(symbol, str) or (allowed is not None and symbol not in allowed):
+        logger.warning("Ignoring REST ticker for unsupported symbol: %r", symbol)
+        return None
+
+    last_price = _to_positive_decimal(data.get("lastPrice"))
+    if last_price is None:
+        logger.warning(
+            "Ignoring REST ticker for %s with invalid last price: %r", symbol, data.get("lastPrice")
+        )
+        return None
+
+    # closeTime ends the 24h window the statistics cover, so it plays the role of "E".
+    event_time = _to_datetime(data.get("closeTime"))
+    if event_time is None:
+        logger.warning(
+            "Ignoring REST ticker for %s with invalid close time: %r", symbol, data.get("closeTime")
+        )
+        return None
+
+    bid_price, ask_price = _parse_bid_ask(data, symbol, "bidPrice", "askPrice")
+    has_book = bid_price is not None and ask_price is not None
+    return MarketTicker(
+        symbol=symbol,
+        display_symbol=to_display_symbol(symbol),
+        last_price=last_price,
+        price_change=_to_decimal(data.get("priceChange")),
+        price_change_percent=_to_decimal(data.get("priceChangePercent")),
+        high_24h=_to_positive_decimal(data.get("highPrice")),
+        low_24h=_to_positive_decimal(data.get("lowPrice")),
+        volume_24h=_to_decimal(data.get("volume")),
+        bid_price=bid_price,
+        ask_price=ask_price,
+        spread=ask_price - bid_price if has_book else None,
+        spread_percent=spread_percent(bid_price, ask_price) if has_book else None,
+        event_time=event_time,
+        source="rest",
     )
 
 
@@ -330,7 +378,7 @@ def parse_rest_kline(row: Any, symbol: str, interval: str, is_closed: bool) -> K
 
 
 class BinanceRestClient:
-    """Historical candles from Binance REST (public market data endpoint only)."""
+    """Candles and fallback tickers from Binance REST (public market data endpoint only)."""
 
     RATE_LIMIT_STATUSES = (418, 429)
     DEFAULT_RATE_LIMIT_PAUSE = 60.0
@@ -346,8 +394,8 @@ class BinanceRestClient:
         await self.http.aclose()
 
     async def get_klines(self, symbol: str, interval: str, limit: int) -> list[KlineUpdate]:
-        rows = await self._fetch_kline_rows(
-            {"symbol": symbol, "interval": interval, "limit": limit}
+        rows = await self._get_list(
+            "/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": limit}
         )
         last_index = len(rows) - 1
         # The newest candle is still being built, every earlier one is final.
@@ -359,13 +407,14 @@ class BinanceRestClient:
 
     async def get_kline_at(self, symbol: str, interval: str, start: datetime) -> KlineUpdate | None:
         """The first candle opening at or after `start`, or None if Binance has none."""
-        rows = await self._fetch_kline_rows(
+        rows = await self._get_list(
+            "/api/v3/klines",
             {
                 "symbol": symbol,
                 "interval": interval,
                 "startTime": datetime_to_ms(start),
                 "limit": 1,
-            }
+            },
         )
         if not rows:
             return None
@@ -374,13 +423,22 @@ class BinanceRestClient:
             return None
         return candle.model_copy(update={"is_closed": candle.close_time < datetime.now(UTC)})
 
-    async def _fetch_kline_rows(self, params: dict[str, Any]) -> list[Any]:
+    async def get_tickers(self, symbols: list[str]) -> list[MarketTicker]:
+        """24h tickers for all `symbols` in one request (weight 2 for up to 20 symbols)."""
+        # Binance expects a JSON array without spaces: symbols=["BTCEUR","ETHEUR"].
+        entries = await self._get_list(
+            "/api/v3/ticker/24hr", {"symbols": json.dumps(symbols, separators=(",", ":"))}
+        )
+        tickers = [parse_rest_ticker(entry, set(symbols)) for entry in entries]
+        return [ticker for ticker in tickers if ticker is not None]
+
+    async def _get_list(self, path: str, params: dict[str, Any]) -> list[Any]:
         if time.monotonic() < self._paused_until:
             # After 429/418 Binance bans clients that keep retrying, so wait out the pause.
             raise ExchangeUnavailableError("Binance rate limit pause is still active")
 
         try:
-            response = await self.http.get("/api/v3/klines", params=params)
+            response = await self.http.get(path, params=params)
         except httpx.HTTPError as exc:
             raise ExchangeUnavailableError(f"Binance REST request failed: {exc!r}") from exc
 

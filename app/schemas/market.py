@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +21,8 @@ class MarketTicker(BaseModel):
     spread: Decimal | None = None
     spread_percent: Decimal | None = None
     event_time: datetime
+    # "ws" for the live stream, "rest" for the fallback polling while the stream is down.
+    source: Literal["ws", "rest"] = "ws"
 
 
 class RollingChange(BaseModel):
@@ -128,5 +131,13 @@ class MarketsResponse(BaseModel):
             "connecting, connected, reconnecting or stopped."
         ),
         examples=["connected"],
+    )
+    price_source: str = Field(
+        default="ws",
+        description=(
+            "Where prices come from: ws (live stream) or rest (polling Binance REST every few "
+            "seconds while the stream is down)."
+        ),
+        examples=["ws"],
     )
     markets: list[MarketView] = Field(description="Every supported pair, in configured order.")

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     kline_intervals: list[str] = ["1m", "5m", "15m", "1h"]
     receive_timeout_seconds: int = 30
     rolling_windows: list[str] = ["1h", "4h"]
+    # While the stream has been down this long, prices are polled from REST at this interval.
+    rest_fallback_after_seconds: int = 30
+    rest_fallback_interval_seconds: int = 10
     # Spread (in % of the mid price) above which a market is flagged as less liquid.
     spread_warning_percent: Decimal = Decimal("0.5")
     # Stored 1m candles older than this are deleted by the periodic cleanup.
@@ -45,6 +48,14 @@ class Settings(BaseSettings):
         if unknown:
             raise ValueError(f"Unsupported rolling windows {unknown}; use 1h and/or 4h")
         return windows
+
+    @field_validator("rest_fallback_after_seconds", "rest_fallback_interval_seconds")
+    @classmethod
+    def check_rest_fallback_seconds(cls, seconds: int) -> int:
+        # 0 would poll Binance in a tight loop and quickly hit its rate limit.
+        if seconds <= 0:
+            raise ValueError("REST fallback seconds must be greater than 0")
+        return seconds
 
     @field_validator("candle_retention_days")
     @classmethod

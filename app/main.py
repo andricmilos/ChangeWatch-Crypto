@@ -33,6 +33,7 @@ from app.services.exchange_client import (
 )
 from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService, MarketEvent
+from app.services.rest_fallback import RestFallbackPoller
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
 from app.websocket.routes import market_event_message
@@ -84,10 +85,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         candle_service.run_cleanup(get_settings().candle_retention_days)
     )
     app.state.candle_cleanup_task = cleanup_task
+    rest_fallback = RestFallbackPoller(
+        service,
+        lambda: rest_client.get_tickers(get_settings().supported_symbols),
+        after_seconds=get_settings().rest_fallback_after_seconds,
+        interval_seconds=get_settings().rest_fallback_interval_seconds,
+    )
+    rest_fallback_task = asyncio.create_task(rest_fallback.run())
+    app.state.rest_fallback_task = rest_fallback_task
     yield
-    cleanup_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await cleanup_task
+    # Cancelled before the REST client closes, so no fallback request uses a closed client.
+    for task in (cleanup_task, rest_fallback_task):
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
     await service.stop()
     await rest_client.close()
 

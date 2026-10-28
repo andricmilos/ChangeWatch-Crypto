@@ -64,6 +64,7 @@ async def list_markets(service: MarketService) -> MarketsResponse:
     snapshot = service.snapshot()
     return MarketsResponse(
         connection_status=snapshot["connection_status"],
+        price_source=snapshot["price_source"],
         markets=[
             to_market_view(market, service.settings.spread_warning_percent)
             for market in snapshot["markets"]

@@ -164,5 +164,10 @@ async def test_client_status_change_reaches_subscribers():
     await service.client._set_status("reconnecting")
     await service.client._set_status("reconnecting")
 
-    assert events == [{"type": "status", "data": {"connection_status": "reconnecting"}}]
+    assert events == [
+        {
+            "type": "status",
+            "data": {"connection_status": "reconnecting", "price_source": "ws"},
+        }
+    ]
     assert market_event_message(events[0], service) == events[0]

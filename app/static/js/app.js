@@ -58,6 +58,8 @@ const state = {
   liveDataAtMs: null,
   socketState: "connecting", // "connecting" | "open" | "closed"
   exchangeStatus: null,
+  // "rest" while the server polls Binance REST because its stream connection is down.
+  priceSource: "ws",
   reconnectDelayMs: RECONNECT_INITIAL_DELAY_MS,
   lastUpdateMs: null,
   selectedSymbol: null,
@@ -220,7 +222,7 @@ function rowStatus(symbol) {
   if (!entry || isMissing(entry.market.last_price)) return "no-data";
   if (
     state.socketState !== "open" ||
-    state.exchangeStatus !== "connected" ||
+    !exchangeDataFlowing() ||
     state.liveDataAtMs === null ||
     Date.now() - state.liveDataAtMs > STALE_AFTER_MS
   ) {
@@ -246,6 +248,14 @@ function renderStatus(symbol) {
   row.classList.toggle("is-stale", stale);
   cards.get(symbol)?.classList.toggle("is-stale", stale);
   watchlistItem(symbol)?.classList.toggle("is-stale", stale);
+}
+
+function inRestFallback() {
+  return state.exchangeStatus !== "connected" && state.priceSource === "rest";
+}
+
+function exchangeDataFlowing() {
+  return state.exchangeStatus === "connected" || inRestFallback();
 }
 
 function markLiveData() {
@@ -274,6 +284,9 @@ function renderIndicator() {
   } else if (state.socketState === "open" && state.exchangeStatus === "connected") {
     kind = "live";
     label = "Uživo";
+  } else if (state.socketState === "open" && inRestFallback()) {
+    kind = "fallback";
+    label = "Rezervni režim – cene na 10 s";
   }
   elements.indicator.className = `indicator indicator-${kind}`;
   elements.indicatorLabel.textContent = label;
@@ -281,7 +294,7 @@ function renderIndicator() {
 }
 
 function renderChartStale() {
-  const exchangeDown = state.exchangeStatus !== null && state.exchangeStatus !== "connected";
+  const exchangeDown = state.exchangeStatus !== null && !exchangeDataFlowing();
   const stale =
     state.socketState === "closed" ||
     exchangeDown ||
@@ -300,11 +313,18 @@ function selectPair(symbol) {
   renderChartStale();
 }
 
-function setExchangeStatus(status) {
+function setExchangeStatus(status, priceSource = "ws") {
   state.exchangeStatus = status;
+  state.priceSource = priceSource;
   elements.exchangeBanner.hidden = status !== "reconnecting";
-  // Without a live exchange connection no price on screen is current.
-  if (status !== "connected") markAllStale();
+  if (inRestFallback()) {
+    // The server sends this status after every successful REST round, as a heartbeat.
+    markLiveData();
+    for (const symbol of rows.keys()) renderStatus(symbol);
+  } else if (status !== "connected") {
+    // Without a live exchange connection no price on screen is current.
+    markAllStale();
+  }
   renderIndicator();
 }
 
@@ -458,7 +478,7 @@ function handleAlertTriggered(alert) {
 
 function handleSnapshot(data) {
   elements.loading.hidden = true;
-  setExchangeStatus(data.connection_status);
+  setExchangeStatus(data.connection_status, data.price_source);
   // The server's freshness follows its exchange connection, so one live market means all are.
   if (data.markets.some((market) => market.freshness === "live")) markLiveData();
   for (const market of data.markets) renderRow(market);
@@ -481,7 +501,7 @@ function handleMessage(message) {
       notifyPricesChanged();
       break;
     case "status":
-      setExchangeStatus(message.data.connection_status);
+      setExchangeStatus(message.data.connection_status, message.data.price_source);
       break;
     case "kline":
       markLiveData();
