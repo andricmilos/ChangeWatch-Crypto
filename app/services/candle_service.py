@@ -3,9 +3,11 @@ import logging
 import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -149,7 +151,8 @@ class CandleService:
         # No VACUUM afterwards: it locks the whole database, and SQLite reuses the freed pages.
         statement = delete(Candle).where(Candle.open_time < datetime_to_ms(cutoff))
         async with self.session_factory() as session:
-            result = await session.execute(statement)
+            # DML statements return a CursorResult; execute() is typed as the generic Result.
+            result = cast(CursorResult[Any], await session.execute(statement))
             await session.commit()
         return result.rowcount
 

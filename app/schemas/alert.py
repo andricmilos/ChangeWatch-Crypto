@@ -72,7 +72,8 @@ class AlertOut(BaseModel):
         description="Price that fired the alert; null if it has not.", examples=[None]
     )
 
-    @computed_field(description="Pair for display.", examples=["BTC/EUR"])
+    # mypy rejects decorators above @property; Pydantic documents this ignore as the fix.
+    @computed_field(description="Pair for display.", examples=["BTC/EUR"])  # type: ignore[prop-decorator]
     @property
     def display_symbol(self) -> str:
         return to_display_symbol(self.symbol)

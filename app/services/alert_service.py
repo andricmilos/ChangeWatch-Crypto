@@ -2,8 +2,10 @@ import logging
 from collections import defaultdict
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any, cast
 
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -153,7 +155,8 @@ class AlertService:
         )
         try:
             async with self.session_factory() as session:
-                result = await session.execute(statement)
+                # DML statements return a CursorResult; execute() is typed as the generic Result.
+                result = cast(CursorResult[Any], await session.execute(statement))
                 await session.commit()
                 if result.rowcount == 0:
                     return

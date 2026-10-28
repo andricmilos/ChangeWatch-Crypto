@@ -17,3 +17,15 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+files = ["app"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["app.services.*", "app.schemas.*"]
+disallow_untyped_defs = true

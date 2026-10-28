@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -68,7 +69,7 @@ async def market_websocket(websocket: WebSocket, service: MarketService, manager
         manager.disconnect(websocket)
 
 
-def browser_message_size(message: dict[str, Any]) -> int:
+def browser_message_size(message: Mapping[str, Any]) -> int:
     if message.get("bytes") is not None:
         return len(message["bytes"])
     return len((message.get("text") or "").encode())

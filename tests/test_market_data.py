@@ -469,6 +469,11 @@ def test_rolling_ticker_with_invalid_percent_is_dropped(bad_percent):
     assert parse_rolling_ticker(make_rolling(P=bad_percent), ALLOWED) is None
 
 
+@pytest.mark.parametrize("bad_type", [None, "1dTicker", ["1hTicker"], {"window": "1h"}, 1])
+def test_rolling_ticker_with_invalid_event_type_is_dropped(bad_type):
+    assert parse_rolling_ticker(make_rolling(e=bad_type), ALLOWED) is None
+
+
 def test_rolling_ticker_without_percent_is_dropped():
     data = make_rolling()
     del data["P"]

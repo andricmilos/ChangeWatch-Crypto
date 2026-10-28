@@ -49,3 +49,11 @@ uvicorn app.main:app --reload
 
 Alternatively, `python -m app` starts the same server with `HOST` and `PORT` from `.env`
 (default `127.0.0.1:8000`); auto-reload is on only when `APP_ENV=development`.
+
+Checks before committing:
+
+```bash
+pytest
+ruff check .
+mypy
+```

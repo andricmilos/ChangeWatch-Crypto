@@ -104,6 +104,13 @@ def _parse_bid_ask(
     return bid, ask
 
 
+def _spread(bid: Decimal | None, ask: Decimal | None) -> tuple[Decimal | None, Decimal | None]:
+    """Absolute and percent spread; both None without a usable book."""
+    if bid is None or ask is None:
+        return None, None
+    return ask - bid, spread_percent(bid, ask)
+
+
 def spread_percent(bid: Decimal, ask: Decimal) -> Decimal:
     """(ask - bid) relative to the mid price, in percent, rounded to 3 decimals."""
     mid = (ask + bid) / 2
@@ -128,7 +135,7 @@ def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> Marke
 
     # A bad bid/ask only drops the book prices; the last price and 24h data stay usable.
     bid_price, ask_price = _parse_bid_ask(data, symbol)
-    has_book = bid_price is not None and ask_price is not None
+    spread, spread_pct = _spread(bid_price, ask_price)
     return MarketTicker(
         symbol=symbol,
         display_symbol=to_display_symbol(symbol),
@@ -140,8 +147,8 @@ def parse_ticker(data: dict[str, Any], allowed: set[str] | None = None) -> Marke
         volume_24h=_to_decimal(data.get("v")),
         bid_price=bid_price,
         ask_price=ask_price,
-        spread=ask_price - bid_price if has_book else None,
-        spread_percent=spread_percent(bid_price, ask_price) if has_book else None,
+        spread=spread,
+        spread_percent=spread_pct,
         event_time=event_time,
     )
 
@@ -173,7 +180,7 @@ def parse_rest_ticker(data: Any, allowed: set[str] | None = None) -> MarketTicke
         return None
 
     bid_price, ask_price = _parse_bid_ask(data, symbol, "bidPrice", "askPrice")
-    has_book = bid_price is not None and ask_price is not None
+    spread, spread_pct = _spread(bid_price, ask_price)
     return MarketTicker(
         symbol=symbol,
         display_symbol=to_display_symbol(symbol),
@@ -185,8 +192,8 @@ def parse_rest_ticker(data: Any, allowed: set[str] | None = None) -> MarketTicke
         volume_24h=_to_decimal(data.get("volume")),
         bid_price=bid_price,
         ask_price=ask_price,
-        spread=ask_price - bid_price if has_book else None,
-        spread_percent=spread_percent(bid_price, ask_price) if has_book else None,
+        spread=spread,
+        spread_percent=spread_pct,
         event_time=event_time,
         source="rest",
     )
@@ -200,7 +207,9 @@ def parse_rolling_ticker(
     data: dict[str, Any], allowed: set[str] | None = None
 ) -> RollingChange | None:
     """Keep only symbol, window, percent change and time; the rest overlaps the 24h ticker."""
-    window = ROLLING_EVENT_WINDOWS.get(data.get("e"))
+    # A non-string "e" (list, object) is unhashable and would crash the dict lookup.
+    event_type = data.get("e")
+    window = ROLLING_EVENT_WINDOWS.get(event_type) if isinstance(event_type, str) else None
     if window is None:
         logger.warning("Ignoring rolling ticker with unknown window: %r", data.get("e"))
         return None

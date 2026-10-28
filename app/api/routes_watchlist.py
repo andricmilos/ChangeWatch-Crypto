@@ -1,7 +1,8 @@
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import delete, select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,7 +74,11 @@ async def add_to_watchlist(payload: WatchlistCreate, session: Session) -> Watchl
 )
 async def remove_from_watchlist(symbol: str, session: Session, service: MarketService) -> Response:
     normalized = normalize_symbol(symbol, service.settings.supported_symbols)
-    result = await session.execute(delete(WatchlistItem).where(WatchlistItem.symbol == normalized))
+    # DML statements return a CursorResult; execute() is typed as the generic Result.
+    result = cast(
+        CursorResult[Any],
+        await session.execute(delete(WatchlistItem).where(WatchlistItem.symbol == normalized)),
+    )
     await session.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Par nije u watchlist-i")
