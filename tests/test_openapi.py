@@ -17,7 +17,7 @@ from app.api.dependencies import (
     get_market_service,
     get_runtime_stats,
 )
-from app.api.rate_limit import RateLimiter, history_limiter, write_limiter
+from app.api.rate_limit import RateLimiter, export_limiter, history_limiter, write_limiter
 from app.config import Settings
 from app.database import Base, get_session
 from app.main import app
@@ -272,6 +272,29 @@ def test_alerts_errors_match_documentation(client, schema):
             (422, lambda: client.patch("/api/alerts/abc", json={"is_active": False})),
             (429, over_limit(write_limiter, lambda: client.patch("/api/alerts/999", json={}))),
         ],
+    )
+
+
+def test_export_errors_match_documentation(client, schema):
+    def candles(**params: Any) -> Callable[[], Response]:
+        query = {"symbol": "BTCEUR", "from_ms": 0, "to_ms": 60_000, **params}
+        return lambda: client.get("/api/export/candles.csv", params=query)
+
+    assert_errors_match(
+        schema,
+        "get",
+        "/api/export/candles.csv",
+        [
+            (422, candles(symbol="XRPEUR")),
+            (422, candles(interval="5m")),
+            (429, over_limit(export_limiter, candles())),
+        ],
+    )
+    assert_errors_match(
+        schema,
+        "get",
+        "/api/export/alerts.csv",
+        [(429, over_limit(export_limiter, lambda: client.get("/api/export/alerts.csv")))],
     )
 
 

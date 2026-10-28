@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401  (registers every table on Base.metadata)
-from app.api.rate_limit import history_limiter, write_limiter
+from app.api.rate_limit import export_limiter, history_limiter, write_limiter
 from app.database import Base
 
 
@@ -27,8 +27,8 @@ async def session() -> AsyncIterator[AsyncSession]:
 def reset_rate_limiter() -> Iterator[None]:
     # Every TestClient request comes from the same "IP", so without a reset the shared
     # limiter would count requests across tests and start answering 429.
-    for limiter in (write_limiter, history_limiter):
+    for limiter in (write_limiter, history_limiter, export_limiter):
         limiter.reset()
     yield
-    for limiter in (write_limiter, history_limiter):
+    for limiter in (write_limiter, history_limiter, export_limiter):
         limiter.reset()

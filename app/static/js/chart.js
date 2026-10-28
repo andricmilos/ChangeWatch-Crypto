@@ -38,6 +38,10 @@ const chartPanel = (() => {
     panelError: document.getElementById("notes-panel-error"),
     panelEmpty: document.getElementById("notes-panel-empty"),
     panelList: document.getElementById("notes-panel-list"),
+    exportCandles: document.getElementById("export-candles"),
+    exportCandlesError: document.getElementById("export-candles-error"),
+    exportNotes: document.getElementById("export-notes"),
+    exportNotesError: document.getElementById("export-notes-error"),
   };
 
   const INTERVAL_MS = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000 };
@@ -807,6 +811,39 @@ const chartPanel = (() => {
     }
   }
 
+  // Exports the stored 1m candles of the visible time range, whatever the chart interval is.
+  function exportCandles() {
+    const range = chart.timeScale().getVisibleRange();
+    if (state.symbol === null || range === null) {
+      elements.exportCandlesError.textContent = "Nema prikazanih sveća za izvoz.";
+      elements.exportCandlesError.hidden = false;
+      return;
+    }
+    const intervalMs = INTERVAL_MS[state.interval];
+    const params = new URLSearchParams({
+      symbol: state.symbol,
+      interval: "1m",
+      from_ms: String(Math.max(range.from * 1000, 0)),
+      // The last visible candle counts as a whole.
+      to_ms: String(range.to * 1000 + intervalMs - 1),
+    });
+    csvExport.download(
+      `/api/export/candles.csv?${params}`,
+      elements.exportCandles,
+      elements.exportCandlesError,
+    );
+  }
+
+  function exportNotes() {
+    if (state.symbol === null) return;
+    const params = new URLSearchParams({ symbol: state.symbol });
+    csvExport.download(
+      `/api/export/notes.csv?${params}`,
+      elements.exportNotes,
+      elements.exportNotesError,
+    );
+  }
+
   function reload() {
     if (state.symbol !== null) loadHistory(state.symbol, state.interval);
   }
@@ -816,6 +853,10 @@ const chartPanel = (() => {
     state.symbol = symbol;
     elements.symbol.textContent = displaySymbol;
     elements.panelSymbol.textContent = displaySymbol;
+    elements.exportCandles.disabled = false;
+    elements.exportNotes.disabled = false;
+    elements.exportCandlesError.hidden = true;
+    elements.exportNotesError.hidden = true;
     // A picked moment or half-typed note belongs to the previous pair.
     setPicking(false);
     closeNoteForm();
@@ -873,6 +914,8 @@ const chartPanel = (() => {
   }
 
   elements.noteAdd.addEventListener("click", () => setPicking(!state.picking));
+  elements.exportCandles.addEventListener("click", exportCandles);
+  elements.exportNotes.addEventListener("click", exportNotes);
   elements.formText.addEventListener("input", updateNoteCount);
   elements.formText.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;

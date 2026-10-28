@@ -564,6 +564,21 @@ h2 {
   font-size: 0.9rem;
 }
 
+/* Heading with a "Preuzmi CSV" button on the right */
+
+.export-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.export-header h2,
+.export-header h3 {
+  margin-bottom: 0;
+}
+
 .notes-panel-list {
   display: grid;
   gap: 4px;

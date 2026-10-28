@@ -114,8 +114,13 @@
           <button type="button" id="note-add" class="note-button" aria-pressed="false" hidden>
             Dodaj belešku
           </button>
+          <button type="button" id="export-candles" class="note-button"
+                  title="1m sveće trenutnog para za prikazani period" disabled>
+            Preuzmi CSV
+          </button>
         </div>
       </div>
+      <p id="export-candles-error" class="note-error" role="alert" hidden></p>
       <div class="chart-wrap">
         <div id="chart"></div>
         <div id="chart-message" class="chart-message" hidden></div>
@@ -141,7 +146,14 @@
       <ul id="chart-notes" class="chart-notes" aria-label="Beleške i alerti za sveću" hidden></ul>
       <p class="chart-note">Vreme je prikazano u UTC.</p>
       <div class="notes-panel">
-        <h3>Beleške za <span id="notes-panel-symbol">—</span></h3>
+        <div class="export-header">
+          <h3>Beleške za <span id="notes-panel-symbol">—</span></h3>
+          <button type="button" id="export-notes" class="note-button"
+                  title="Sve beleške trenutnog para" disabled>
+            Preuzmi CSV
+          </button>
+        </div>
+        <p id="export-notes-error" class="note-error" role="alert" hidden></p>
         <p id="notes-panel-error" class="note-error" role="alert" hidden></p>
         <p id="notes-panel-empty" class="note-muted">Nema beleški u prikazanom periodu.</p>
         <ul id="notes-panel-list" class="notes-panel-list"></ul>
@@ -156,7 +168,11 @@
     </section>
 
     <section class="panel panel-alerts">
-      <h2>Alerti</h2>
+      <div class="export-header">
+        <h2>Alerti</h2>
+        <button type="button" id="export-alerts" class="note-button">Preuzmi CSV</button>
+      </div>
+      <p id="export-alerts-error" class="note-error" role="alert" hidden></p>
       <form class="alert-form" hx-post="/partials/alerts" hx-target="#alerts-list">
         <select name="symbol" aria-label="Par" required>
           {% for pair in pairs %}
@@ -253,6 +269,7 @@
 
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
   <script src="https://unpkg.com/lightweight-charts@5.2/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="/static/js/export.js"></script>
   <script src="/static/js/chart.js"></script>
   <script src="/static/js/app.js"></script>
   <!-- After app.js: it reuses formatPrice() and LOCALE from there. -->
