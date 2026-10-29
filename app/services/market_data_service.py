@@ -10,6 +10,7 @@ from app.schemas.market import KlineUpdate, MarketTicker, RollingChange
 from app.services.exchange_client import (
     BinanceStreamClient,
     ClientStatus,
+    DepthCallback,
     build_stream_url,
     to_display_symbol,
 )
@@ -41,7 +42,12 @@ def _same_market_data(old: MarketTicker, new: MarketTicker) -> bool:
 class MarketDataService:
     """In-memory source of truth for the latest market data, fed by one Binance connection."""
 
-    def __init__(self, settings: Settings, stats: RuntimeStats | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        stats: RuntimeStats | None = None,
+        on_depth: DepthCallback | None = None,
+    ) -> None:
         self.settings = settings
         self.stats = stats or RuntimeStats()
         self.client = BinanceStreamClient(
@@ -50,10 +56,14 @@ class MarketDataService:
                 settings.supported_symbols,
                 settings.kline_intervals,
                 settings.rolling_windows,
+                settings.orderbook_levels if settings.orderbook_enabled else None,
             ),
             on_ticker=self.handle_ticker,
             on_kline=self.handle_kline,
             on_rolling=self.handle_rolling,
+            # Order books go straight to their own service, not through the subscribers:
+            # a failure there is caught by the client and cannot reach prices or alerts.
+            on_depth=on_depth,
             allowed_symbols=set(settings.supported_symbols),
             receive_timeout=settings.receive_timeout_seconds,
             reconnect_initial_delay=settings.reconnect_initial_delay,

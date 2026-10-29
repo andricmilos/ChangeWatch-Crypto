@@ -3,6 +3,7 @@ import contextlib
 import json
 import logging
 import random
+import re
 import sys
 import time
 from collections.abc import Awaitable, Callable
@@ -16,6 +17,7 @@ from websockets.asyncio.client import connect
 
 from app.config import Settings, get_settings
 from app.schemas.market import KlineUpdate, MarketTicker, RollingChange
+from app.schemas.orderbook import OrderBookLevel, OrderBookSnapshot
 from app.services.runtime_stats import RuntimeStats
 
 logger = logging.getLogger(__name__)
@@ -283,6 +285,133 @@ def parse_kline(data: dict[str, Any], allowed: set[str] | None = None) -> KlineU
     )
 
 
+IMBALANCE_PERCENT_STEP = Decimal("0.01")
+# "btceur@depth10"; the optional speed suffix is accepted so a renamed stream still parses.
+DEPTH_STREAM = re.compile(r"^(?P<symbol>[a-z0-9]+)@depth(?:5|10|20)(?:@\d+ms)?$")
+
+
+def is_depth_stream(stream: Any) -> bool:
+    return isinstance(stream, str) and "@depth" in stream
+
+
+def _parse_depth_side(levels: Any, symbol: str, side: str) -> list[tuple[Decimal, Decimal]] | None:
+    """[["price", "quantity"], ...] as Decimals; None (with a warning) when anything is off."""
+    if not isinstance(levels, list) or not levels:
+        logger.warning("Dropping order book for %s: missing or empty %s", symbol, side)
+        return None
+    parsed: list[tuple[Decimal, Decimal]] = []
+    for level in levels:
+        if not isinstance(level, list) or len(level) < 2:
+            logger.warning("Dropping order book for %s: invalid %s level %r", symbol, side, level)
+            return None
+        price = _to_decimal(level[0])
+        quantity = _to_decimal(level[1])
+        if price is None or quantity is None:
+            logger.warning(
+                "Dropping order book for %s: non-numeric %s level %r", symbol, side, level
+            )
+            return None
+        if price <= 0 or quantity < 0:
+            logger.warning(
+                "Dropping order book for %s: %s level %r has price <= 0 or quantity < 0",
+                symbol,
+                side,
+                level,
+            )
+            return None
+        parsed.append((price, quantity))
+    return parsed
+
+
+def _is_strictly_ordered(prices: list[Decimal], descending: bool) -> bool:
+    pairs = zip(prices, prices[1:], strict=False)
+    if descending:
+        return all(first > second for first, second in pairs)
+    return all(first < second for first, second in pairs)
+
+
+def _with_cumulative(levels: list[tuple[Decimal, Decimal]]) -> list[OrderBookLevel]:
+    result: list[OrderBookLevel] = []
+    total = Decimal(0)
+    for price, quantity in levels:
+        total += quantity
+        result.append(OrderBookLevel(price=price, quantity=quantity, cumulative_quantity=total))
+    return result
+
+
+def imbalance_percent(bid_volume: Decimal, ask_volume: Decimal) -> Decimal | None:
+    total = bid_volume + ask_volume
+    if total == 0:
+        return None
+    return ((bid_volume - ask_volume) / total * 100).quantize(
+        IMBALANCE_PERCENT_STEP, rounding=ROUND_HALF_UP
+    )
+
+
+def parse_depth(
+    stream: str, data: dict[str, Any], allowed: set[str] | None, received_at: datetime
+) -> OrderBookSnapshot | None:
+    """A Partial Book Depth message; the payload carries no symbol, so it comes from `stream`."""
+    match = DEPTH_STREAM.match(stream)
+    symbol = match["symbol"].upper() if match else None
+    if symbol is None or (allowed is not None and symbol not in allowed):
+        logger.warning("Ignoring order book for unsupported stream: %r", stream)
+        return None
+
+    last_update_id = data.get("lastUpdateId")
+    if not isinstance(last_update_id, int) or isinstance(last_update_id, bool):
+        logger.warning(
+            "Dropping order book for %s: invalid lastUpdateId %r", symbol, last_update_id
+        )
+        return None
+
+    bids = _parse_depth_side(data.get("bids"), symbol, "bids")
+    asks = _parse_depth_side(data.get("asks"), symbol, "asks")
+    if bids is None or asks is None:
+        return None
+    if not _is_strictly_ordered([price for price, _ in bids], descending=True):
+        logger.warning("Dropping order book for %s: bids are not in descending order", symbol)
+        return None
+    if not _is_strictly_ordered([price for price, _ in asks], descending=False):
+        logger.warning("Dropping order book for %s: asks are not in ascending order", symbol)
+        return None
+
+    best_bid, best_ask = bids[0][0], asks[0][0]
+    if best_bid >= best_ask:
+        logger.warning(
+            "Dropping order book for %s: best bid %s is not below best ask %s",
+            symbol,
+            best_bid,
+            best_ask,
+        )
+        return None
+
+    bid_levels = _with_cumulative(bids)
+    ask_levels = _with_cumulative(asks)
+    bid_volume = bid_levels[-1].cumulative_quantity
+    ask_volume = ask_levels[-1].cumulative_quantity
+    return OrderBookSnapshot(
+        symbol=symbol,
+        last_update_id=last_update_id,
+        received_at=received_at,
+        bids=bid_levels,
+        asks=ask_levels,
+        best_bid=best_bid,
+        best_ask=best_ask,
+        spread=best_ask - best_bid,
+        spread_percent=spread_percent(best_bid, best_ask),
+        mid_price=(best_bid + best_ask) / 2,
+        bid_volume=bid_volume,
+        ask_volume=ask_volume,
+        imbalance_percent=imbalance_percent(bid_volume, ask_volume),
+    )
+
+
+@dataclass(frozen=True)
+class RejectedDepth:
+    """A depth message that failed validation; counted apart from other rejected messages."""
+
+
 @dataclass(frozen=True)
 class ServerShutdown:
     """Binance is about to shut the server down and asks clients to reconnect right away."""
@@ -290,10 +419,14 @@ class ServerShutdown:
     event_time: datetime | None
 
 
-ExchangeEvent = MarketTicker | RollingChange | KlineUpdate | ServerShutdown
+ExchangeEvent = (
+    MarketTicker | RollingChange | KlineUpdate | OrderBookSnapshot | RejectedDepth | ServerShutdown
+)
 
 
-def parse_message(raw: str, allowed: set[str]) -> ExchangeEvent | None:
+def parse_message(
+    raw: str, allowed: set[str], received_at: datetime | None = None
+) -> ExchangeEvent | None:
     try:
         message = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -312,6 +445,12 @@ def parse_message(raw: str, allowed: set[str]) -> ExchangeEvent | None:
         logger.warning("Ignoring message with invalid 'data' payload")
         return None
 
+    # Depth payloads have no "e" field, so they are recognised by the stream name.
+    stream = message.get("stream")
+    if is_depth_stream(stream):
+        snapshot = parse_depth(stream, data, allowed, received_at or datetime.now(UTC))
+        return RejectedDepth() if snapshot is None else snapshot
+
     event_type = data.get("e")
     if event_type == "24hrTicker":
         return parse_ticker(data, allowed)
@@ -329,13 +468,18 @@ def build_stream_url(
     symbols: list[str],
     intervals: list[str],
     rolling_windows: list[str] | None = None,
+    depth_levels: int | None = None,
 ) -> str:
+    """depth_levels None leaves the order book stream out."""
     streams: list[str] = []
     for symbol in symbols:
         name = symbol.lower()
         streams.append(f"{name}@ticker")
         streams.extend(f"{name}@ticker_{window}" for window in rolling_windows or [])
         streams.extend(f"{name}@kline_{interval}" for interval in intervals)
+        if depth_levels is not None:
+            # Without the @100ms suffix Binance updates the partial book every 1000 ms.
+            streams.append(f"{name}@depth{depth_levels}")
     return f"{base_url.rstrip('/')}/stream?streams={'/'.join(streams)}"
 
 
@@ -489,6 +633,7 @@ ClientStatus = Literal["connecting", "connected", "reconnecting", "stopped"]
 TickerCallback = Callable[[MarketTicker], Awaitable[None]]
 KlineCallback = Callable[[KlineUpdate], Awaitable[None]]
 RollingCallback = Callable[[RollingChange], Awaitable[None]]
+DepthCallback = Callable[[OrderBookSnapshot], Awaitable[None]]
 StatusCallback = Callable[[ClientStatus], Awaitable[None]]
 # Returns an async context manager yielding a connection with recv() and close();
 # tests pass a fake one so no real network is used.
@@ -521,6 +666,7 @@ class BinanceStreamClient:
         reconnect_max_delay: float = 60.0,
         on_status_change: StatusCallback | None = None,
         on_rolling: RollingCallback | None = None,
+        on_depth: DepthCallback | None = None,
         stats: RuntimeStats | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -528,6 +674,7 @@ class BinanceStreamClient:
         self.on_ticker = on_ticker
         self.on_kline = on_kline
         self.on_rolling = on_rolling
+        self.on_depth = on_depth
         self.on_status_change = on_status_change
         self.connect_factory = connect_factory
         self.allowed_symbols = allowed_symbols
@@ -651,9 +798,21 @@ class BinanceStreamClient:
             return
         if isinstance(event, ServerShutdown):
             raise ServerShutdownError
-        self.stats.record_pair_message(event.symbol)
+        if isinstance(event, RejectedDepth):
+            self.stats.record_depth_message(accepted=False)
+            self.stats.record_rejected_message()
+            return
+        if isinstance(event, OrderBookSnapshot):
+            self.stats.record_depth_message(accepted=True)
+        else:
+            # Depth arrives every second regardless of trading, so it would hide a silent
+            # ticker or kline stream; seconds_since_last_message keeps tracking only those.
+            self.stats.record_pair_message(event.symbol)
         try:
-            if isinstance(event, MarketTicker):
+            if isinstance(event, OrderBookSnapshot):
+                if self.on_depth is not None:
+                    await self.on_depth(event)
+            elif isinstance(event, MarketTicker):
                 await self.on_ticker(event)
             elif isinstance(event, KlineUpdate):
                 await self.on_kline(event)

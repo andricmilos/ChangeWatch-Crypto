@@ -268,6 +268,7 @@ def test_status_returns_expected_fields(client):
         "uptime_seconds",
         "exchange",
         "messages",
+        "orderbook",
         "markets",
         "browsers",
         "database",
@@ -282,6 +283,7 @@ def test_status_returns_expected_fields(client):
         "last_disconnect_reason": None,
     }
     assert body["messages"] == {"total": 0, "last_60s": 0, "rejected": 0}
+    assert body["orderbook"] == {"received": 0, "rejected": 0}
     assert body["markets"][0] == {
         "symbol": "BTCEUR",
         "seconds_since_last_message": None,

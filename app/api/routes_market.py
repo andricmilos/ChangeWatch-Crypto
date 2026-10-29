@@ -3,17 +3,25 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.dependencies import get_candle_service, get_market_service, normalize_symbol
+from app.api.dependencies import (
+    get_candle_service,
+    get_market_service,
+    get_orderbook_service,
+    normalize_symbol,
+)
 from app.schemas.error import EXCHANGE_UNAVAILABLE, UNKNOWN_SYMBOL, validation_or_error
 from app.schemas.market import CandleOut, MarketsResponse, MarketView
+from app.schemas.orderbook import OrderBookView
 from app.services.candle_service import CandleService
 from app.services.exchange_client import datetime_to_ms
 from app.services.market_data_service import MarketDataService
+from app.services.orderbook_service import OrderBookService
 
 router = APIRouter(prefix="/api/markets", tags=["markets"])
 
 MarketService = Annotated[MarketDataService, Depends(get_market_service)]
 Candles = Annotated[CandleService, Depends(get_candle_service)]
+OrderBooks = Annotated[OrderBookService, Depends(get_orderbook_service)]
 
 
 def to_market_view(market: dict[str, Any], spread_warning_percent: Decimal) -> MarketView:
@@ -130,3 +138,21 @@ async def get_candles(
         )
         for candle in candles
     ]
+
+
+@router.get(
+    "/{symbol}/orderbook",
+    response_model=OrderBookView,
+    summary="Get the order book",
+    description=(
+        "Top bids and asks (ORDERBOOK_LEVELS per side) with cumulative quantities, spread, "
+        "mid price and buy/sell imbalance, from the live Binance depth stream. Without data "
+        'freshness is "no_data", the lists are empty and the numbers null.'
+    ),
+    responses={404: UNKNOWN_SYMBOL},
+)
+async def get_orderbook(
+    symbol: str, service: MarketService, orderbooks: OrderBooks
+) -> OrderBookView:
+    normalized = normalize_symbol(symbol, service.settings.supported_symbols)
+    return orderbooks.view(normalized)

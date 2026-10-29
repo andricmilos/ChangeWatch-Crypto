@@ -72,6 +72,9 @@ class RuntimeStats:
         self.messages_rejected = 0
         self._recent_messages = RecentCounter()
         self._pair_message_at: dict[str, float] = {}
+        # Depth messages also count in messages_total / messages_rejected above.
+        self.depth_messages_total = 0
+        self.depth_messages_rejected = 0
 
         self.browser_messages_sent = 0
         self.browser_send_failures = 0
@@ -114,6 +117,11 @@ class RuntimeStats:
 
     def record_pair_message(self, symbol: str) -> None:
         self._pair_message_at[symbol] = self.clock()
+
+    def record_depth_message(self, accepted: bool) -> None:
+        self.depth_messages_total += 1
+        if not accepted:
+            self.depth_messages_rejected += 1
 
     def messages_last_60s(self) -> int:
         return self._recent_messages.total(self.clock())
@@ -173,6 +181,10 @@ class RuntimeStats:
                 "total": self.messages_total,
                 "last_60s": self.messages_last_60s(),
                 "rejected": self.messages_rejected,
+            },
+            "orderbook": {
+                "received": self.depth_messages_total,
+                "rejected": self.depth_messages_rejected,
             },
             "browsers": {
                 "messages_sent": self.browser_messages_sent,

@@ -7,6 +7,7 @@ from fastapi.requests import HTTPConnection
 from app.services.candle_service import CandleService
 from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService
+from app.services.orderbook_service import OrderBookService
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
 
@@ -19,6 +20,10 @@ if TYPE_CHECKING:
 def get_market_service(connection: HTTPConnection) -> MarketDataService:
     # A dependency (not a global) so tests can swap in a fake via app.dependency_overrides.
     return connection.app.state.market_service
+
+
+def get_orderbook_service(connection: HTTPConnection) -> OrderBookService:
+    return connection.app.state.orderbook_service
 
 
 def get_candle_service(connection: HTTPConnection) -> CandleService:

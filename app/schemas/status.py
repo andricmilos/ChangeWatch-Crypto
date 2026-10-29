@@ -31,6 +31,14 @@ class MessageCounts(BaseModel):
     rejected: int = Field(description="Messages that failed validation.", examples=[0])
 
 
+class OrderBookMessageCounts(BaseModel):
+    received: int = Field(
+        description="Order book (depth) messages since start, rejected ones included.",
+        examples=[36110],
+    )
+    rejected: int = Field(description="Depth messages that failed validation.", examples=[0])
+
+
 class PairStatus(BaseModel):
     symbol: str = Field(description="Pair in Binance format.", examples=["BTCEUR"])
     seconds_since_last_message: float | None = Field(
@@ -72,6 +80,7 @@ class StatusResponse(BaseModel):
     uptime_seconds: float = Field(description="Seconds since start.", examples=[7512.4])
     exchange: ExchangeStatus
     messages: MessageCounts
+    orderbook: OrderBookMessageCounts
     markets: list[PairStatus]
     browsers: BrowserStats
     database: DatabaseStats

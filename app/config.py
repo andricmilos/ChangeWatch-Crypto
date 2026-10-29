@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     candle_retention_days: int = 30
     # False makes chart notes read-only, e.g. for a public demo where anyone could edit them.
     notes_write_enabled: bool = True
+    # Top bids and asks per pair from the <symbol>@depth<levels> stream (1000 ms updates).
+    orderbook_enabled: bool = True
+    orderbook_levels: int = 10
+    # A pair's order book older than this is shown as stale; Binance sends one every second.
+    orderbook_stale_seconds: int = 5
 
     @field_validator("supported_symbols")
     @classmethod
@@ -63,6 +68,21 @@ class Settings(BaseSettings):
         if days <= 0:
             raise ValueError("candle_retention_days must be greater than 0")
         return days
+
+    @field_validator("orderbook_levels")
+    @classmethod
+    def check_orderbook_levels(cls, levels: int) -> int:
+        # Binance only offers these partial book depths.
+        if levels not in (5, 10, 20):
+            raise ValueError("orderbook_levels must be 5, 10 or 20")
+        return levels
+
+    @field_validator("orderbook_stale_seconds")
+    @classmethod
+    def check_orderbook_stale_seconds(cls, seconds: int) -> int:
+        if seconds <= 0:
+            raise ValueError("orderbook_stale_seconds must be greater than 0")
+        return seconds
 
 
 @lru_cache

@@ -34,6 +34,7 @@ from app.services.exchange_client import (
 )
 from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService, MarketEvent
+from app.services.orderbook_service import OrderBookService
 from app.services.rest_fallback import RestFallbackPoller
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
@@ -62,7 +63,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
     stats = RuntimeStats()
-    service = MarketDataService(get_settings(), stats)
+    orderbook_service = OrderBookService(get_settings())
+    service = MarketDataService(get_settings(), stats, on_depth=orderbook_service.handle_snapshot)
     manager = ConnectionManager(stats)
     rest_client = BinanceRestClient(get_settings())
     candle_service = CandleService(rest_client, SessionLocal, stats=stats)
@@ -70,6 +72,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await alert_service.load_active()
     app.state.runtime_stats = stats
     app.state.market_service = service
+    app.state.orderbook_service = orderbook_service
     app.state.connection_manager = manager
     app.state.candle_service = candle_service
     app.state.history_service = HistoryService(rest_client)
