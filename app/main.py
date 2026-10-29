@@ -24,6 +24,7 @@ from app.api.routes_watchlist import router as watchlist_router
 from app.config import get_settings
 from app.database import SessionLocal, init_db
 from app.middleware import RequestTimingMiddleware
+from app.schemas.orderbook import OrderBookSnapshot
 from app.services.alert_service import AlertService
 from app.services.candle_service import CandleService
 from app.services.converter import EUR, base_assets
@@ -38,7 +39,7 @@ from app.services.orderbook_service import OrderBookService
 from app.services.rest_fallback import RestFallbackPoller
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
-from app.websocket.routes import market_event_message
+from app.websocket.routes import market_event_message, orderbook_message
 from app.websocket.routes import router as websocket_router
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -81,7 +82,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async def broadcast_market_event(event: MarketEvent) -> None:
         await manager.broadcast(market_event_message(event, service))
 
+    async def send_orderbook(snapshot: OrderBookSnapshot) -> None:
+        await manager.send_orderbook(
+            snapshot.symbol, snapshot.last_update_id, orderbook_message(snapshot)
+        )
+
     service.subscribe(broadcast_market_event)
+    orderbook_service.subscribe(send_orderbook)
     service.subscribe(candle_service.handle_event)
     service.subscribe(alert_service.handle_event)
     await service.start()

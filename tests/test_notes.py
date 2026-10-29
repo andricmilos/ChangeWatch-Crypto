@@ -6,13 +6,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from app.api.dependencies import get_connection_manager, get_market_service
+from app.api.dependencies import (
+    get_connection_manager,
+    get_market_service,
+    get_orderbook_service,
+)
 from app.api.routes_notes import MAX_NOTES
 from app.config import Settings
 from app.database import Base, get_session
 from app.main import app
 from app.models import Note
 from app.services.market_data_service import MarketDataService
+from app.services.orderbook_service import OrderBookService
 from app.websocket.manager import ConnectionManager
 
 MINUTE_MS = 60_000
@@ -63,6 +68,7 @@ def client(session_factory, lifespan_starts, settings):
     original_overrides = dict(app.dependency_overrides)
     app.dependency_overrides[get_market_service] = lambda: market_service
     app.dependency_overrides[get_connection_manager] = lambda: manager
+    app.dependency_overrides[get_orderbook_service] = lambda: OrderBookService(settings)
     app.dependency_overrides[get_session] = test_session
     # No `with` block: the lifespan (real Binance client, real database) does not start.
     yield TestClient(app)

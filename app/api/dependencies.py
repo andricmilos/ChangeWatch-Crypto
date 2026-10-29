@@ -46,9 +46,15 @@ def get_alert_service(connection: HTTPConnection) -> "AlertService":
     return connection.app.state.alert_service
 
 
-def normalize_symbol(raw: str, allowed: Collection[str]) -> str:
-    """Turn "btceur", "BTC-EUR" or "BTC/EUR" into "BTCEUR"; unknown pairs are a 404."""
+def parse_symbol(raw: str, allowed: Collection[str]) -> str | None:
+    """Turn "btceur", "BTC-EUR" or "BTC/EUR" into "BTCEUR"; None for an unknown pair."""
     symbol = raw.strip().upper().replace("-", "").replace("/", "")
-    if symbol not in allowed:
+    return symbol if symbol in allowed else None
+
+
+def normalize_symbol(raw: str, allowed: Collection[str]) -> str:
+    """parse_symbol for routes: an unknown pair is a 404."""
+    symbol = parse_symbol(raw, allowed)
+    if symbol is None:
         raise HTTPException(status_code=404, detail=f"Unknown symbol: {raw}")
     return symbol

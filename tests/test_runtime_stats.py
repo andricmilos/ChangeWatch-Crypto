@@ -12,6 +12,7 @@ from app.api.dependencies import (
     get_alert_service,
     get_connection_manager,
     get_market_service,
+    get_orderbook_service,
     get_runtime_stats,
 )
 from app.config import Settings
@@ -22,6 +23,7 @@ from app.services.alert_service import AlertService
 from app.services.candle_service import CandleService
 from app.services.exchange_client import BinanceStreamClient, parse_kline
 from app.services.market_data_service import MarketDataService
+from app.services.orderbook_service import OrderBookService
 from app.services.runtime_stats import RecentCounter, RuntimeStats
 from app.websocket.manager import ConnectionManager
 from tests.test_alerts import make_ticker
@@ -251,6 +253,9 @@ def client(stats, market_service, manager, alert_service, monkeypatch):
     app.dependency_overrides[get_runtime_stats] = lambda: stats
     app.dependency_overrides[get_market_service] = lambda: market_service
     app.dependency_overrides[get_connection_manager] = lambda: manager
+    app.dependency_overrides[get_orderbook_service] = lambda: OrderBookService(
+        Settings(_env_file=None)
+    )
     app.dependency_overrides[get_alert_service] = lambda: alert_service
     # No `with` block: the lifespan (real Binance client, real database) does not start.
     yield TestClient(app)

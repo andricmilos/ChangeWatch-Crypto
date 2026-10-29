@@ -1,9 +1,16 @@
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from app.config import Settings
 from app.schemas.orderbook import OrderBookSnapshot, OrderBookView
 from app.services.exchange_client import to_display_symbol
 from app.services.market_data_service import Freshness
+
+logger = logging.getLogger(__name__)
+
+OrderBookSubscriber = Callable[[OrderBookSnapshot], Awaitable[None]]
 
 
 class OrderBookService:
@@ -12,13 +19,32 @@ class OrderBookService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self._snapshots: dict[str, OrderBookSnapshot] = {}
+        self._subscribers: list[OrderBookSubscriber] = []
+
+    def subscribe(self, callback: OrderBookSubscriber) -> None:
+        """Call `callback` with every book whose update id is newer than the pair's last one."""
+        self._subscribers.append(callback)
 
     async def handle_snapshot(self, snapshot: OrderBookSnapshot) -> None:
         previous = self._snapshots.get(snapshot.symbol)
         # Binance's update id only grows, so a smaller one is an older book arriving late.
         if previous is not None and snapshot.last_update_id < previous.last_update_id:
             return
+        # An equal id is the same book again: stored so freshness sees it, but not announced.
+        is_new = previous is None or snapshot.last_update_id > previous.last_update_id
         self._snapshots[snapshot.symbol] = snapshot
+        if is_new:
+            await self._notify(snapshot)
+
+    async def _notify(self, snapshot: OrderBookSnapshot) -> None:
+        for subscriber in list(self._subscribers):
+            try:
+                await subscriber(snapshot)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A broken consumer must not stop the book from reaching the others.
+                logger.exception("Order book subscriber failed for %s", snapshot.symbol)
 
     def get(self, symbol: str) -> OrderBookSnapshot | None:
         return self._snapshots.get(symbol)

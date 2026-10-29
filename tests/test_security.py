@@ -15,6 +15,7 @@ from app.api.dependencies import (
     get_candle_service,
     get_connection_manager,
     get_market_service,
+    get_orderbook_service,
 )
 from app.api.rate_limit import RateLimiter
 from app.api.routes_alerts import MAX_ACTIVE_ALERTS
@@ -25,6 +26,7 @@ from app.schemas.alert import AlertCreate
 from app.services.alert_service import AlertService
 from app.services.exchange_client import ExchangeUnavailableError
 from app.services.market_data_service import MarketDataService
+from app.services.orderbook_service import OrderBookService
 from app.websocket.manager import MAX_CONNECTIONS, ConnectionManager
 
 ALERT = {"symbol": "BTCEUR", "target_price": "75000", "condition": "above"}
@@ -88,6 +90,9 @@ def overrides(market_service, alert_service, manager, lifespan_starts):
     app.dependency_overrides[get_market_service] = lambda: market_service
     app.dependency_overrides[get_alert_service] = lambda: alert_service
     app.dependency_overrides[get_connection_manager] = lambda: manager
+    app.dependency_overrides[get_orderbook_service] = lambda: OrderBookService(
+        Settings(_env_file=None)
+    )
     yield app.dependency_overrides
     app.dependency_overrides.clear()
     app.dependency_overrides.update(original_overrides)
