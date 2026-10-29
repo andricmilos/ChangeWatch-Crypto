@@ -30,6 +30,25 @@ Fired alerts of a pair in a period come from
 `GET /api/alerts?symbol=BTCEUR&triggered_from_ms=...&triggered_to_ms=...` (UTC milliseconds,
 both inclusive and optional, oldest first).
 
+## Order book
+
+![BTC/EUR order book panel](docs/images/orderbook.png)
+
+Next to the chart (below it on phones), the "Knjiga naloga" panel shows the live order book of
+the selected pair from the Binance depth stream:
+
+- the 10 best sell orders (red) above and the 10 best buy orders (green) below, the best
+  prices closest to the middle row with the mid price and the spread ("Spread 0,012%");
+- price, quantity and cumulative total per level, with a depth bar behind each row sized to
+  the cumulative quantity (the largest total on either side is 100%);
+- the buyer/seller ratio of the shown volume below the book ("Kupci 58% · Prodavci 42%").
+
+Decimals follow the pair's own data, so ADA/EUR shows more of them than BTC/EUR. Changed cells
+are highlighted briefly. "Zastarelo" covers the book when no new book arrived for 5 seconds or
+the connection to the server is down. Clicking a price puts it into the new-alert form as the
+target price for that pair; nothing is saved until the form is submitted. The "Knjiga naloga"
+toggle switches the panel and its subscription off; the choice is remembered in the browser.
+
 ## Limitations
 
 - Chart notes (`/api/notes`) are shared by every visitor: there are no accounts, so anyone

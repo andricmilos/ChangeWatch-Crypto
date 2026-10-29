@@ -160,6 +160,61 @@
       </div>
     </section>
 
+    <section class="panel panel-orderbook">
+      <div class="panel-header">
+        <h2>Knjiga naloga <span id="orderbook-symbol" class="chart-symbol">—</span></h2>
+        <button type="button" id="orderbook-toggle" class="toggle orderbook-toggle"
+                aria-pressed="true">Knjiga naloga</button>
+      </div>
+      <div class="orderbook-wrap">
+        <p id="orderbook-message" class="orderbook-message">Učitavanje…</p>
+        <div id="orderbook-stale" class="orderbook-stale" role="status" hidden>Zastarelo</div>
+        <table id="orderbook-table" class="orderbook" hidden>
+          <thead>
+            <tr>
+              <th class="num">Cena</th>
+              <th class="num">Količina</th>
+              <th class="num">Ukupno</th>
+            </tr>
+          </thead>
+          <tbody id="orderbook-asks" class="orderbook-side orderbook-asks">
+            {% for _ in range(10) %}
+            <tr class="is-empty">
+              <td class="num"><button type="button" class="orderbook-price"
+                                      title="Postavi kao ciljnu cenu alerta"></button></td>
+              <td class="num" data-field="quantity"></td>
+              <td class="num" data-field="cumulative"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tbody class="orderbook-mid">
+            <tr>
+              <td class="num" id="orderbook-mid-price">—</td>
+              <td colspan="2" class="num" id="orderbook-spread">Spread —</td>
+            </tr>
+          </tbody>
+          <tbody id="orderbook-bids" class="orderbook-side orderbook-bids">
+            {% for _ in range(10) %}
+            <tr class="is-empty">
+              <td class="num"><button type="button" class="orderbook-price"
+                                      title="Postavi kao ciljnu cenu alerta"></button></td>
+              <td class="num" data-field="quantity"></td>
+              <td class="num" data-field="cumulative"></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div id="orderbook-imbalance" class="orderbook-imbalance" hidden>
+        <div class="imbalance-bar" aria-hidden="true">
+          <span id="imbalance-buyers" class="imbalance-buyers"></span>
+          <span id="imbalance-sellers" class="imbalance-sellers"></span>
+        </div>
+        <p id="imbalance-label" class="imbalance-label">—</p>
+      </div>
+      <p class="chart-note">Klikni na cenu da je upišeš kao ciljnu cenu novog alerta.</p>
+    </section>
+
     <section class="panel panel-watchlist">
       <h2>Watchlist</h2>
       <p id="watchlist-error" class="watchlist-error" role="alert" hidden></p>
@@ -271,6 +326,7 @@
   <script src="https://unpkg.com/lightweight-charts@5.2/dist/lightweight-charts.standalone.production.js"></script>
   <script src="/static/js/export.js"></script>
   <script src="/static/js/chart.js"></script>
+  <script src="/static/js/orderbook.js"></script>
   <script src="/static/js/app.js"></script>
   <!-- After app.js: it reuses formatPrice() and LOCALE from there. -->
   <script src="/static/js/converter.js"></script>

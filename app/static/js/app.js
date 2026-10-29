@@ -310,6 +310,7 @@ function selectPair(symbol) {
   state.selectedSymbol = symbol;
   for (const other of rows.values()) other.classList.toggle("is-selected", other === row);
   chartPanel.select(symbol, row.querySelector(".pair").textContent);
+  orderBookPanel.select(symbol, row.querySelector(".pair").textContent);
   renderChartStale();
 }
 
@@ -515,6 +516,12 @@ function handleMessage(message) {
     case "alert_triggered":
       handleAlertTriggered(message.data);
       break;
+    case "orderbook":
+      orderBookPanel.handleOrderBook(message.data);
+      break;
+    case "error":
+      orderBookPanel.handleError(message.data.detail);
+      break;
     default:
       break;
   }
@@ -529,6 +536,9 @@ function connect() {
     state.reconnectDelayMs = RECONNECT_INITIAL_DELAY_MS;
     elements.serverBanner.hidden = true;
     renderIndicator();
+    orderBookPanel.connected((payload) => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
+    });
   });
 
   socket.addEventListener("message", (event) => {
@@ -547,6 +557,7 @@ function connect() {
     elements.serverBanner.hidden = false;
     markAllStale();
     renderIndicator();
+    orderBookPanel.disconnected();
     setTimeout(connect, state.reconnectDelayMs);
     state.reconnectDelayMs = Math.min(state.reconnectDelayMs * 2, RECONNECT_MAX_DELAY_MS);
   });

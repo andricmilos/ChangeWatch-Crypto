@@ -80,6 +80,7 @@ def test_dashboard_has_calculator_panel(client):
         ("/static/js/app.js", "javascript"),
         ("/static/js/chart.js", "javascript"),
         ("/static/js/converter.js", "javascript"),
+        ("/static/js/orderbook.js", "javascript"),
         ("/static/css/style.css", "text/css"),
     ],
 )
@@ -118,3 +119,27 @@ def test_footer_has_tradingview_attribution(client):
     assert 'href="https://www.tradingview.com/"' in footer
     assert "TradingView Lightweight Charts™" in footer
     assert "Copyright (c) 2025 TradingView, Inc." in footer
+
+
+def test_dashboard_has_orderbook_panel(client):
+    html = client.get("/").text
+    panel = html[html.index('class="panel panel-orderbook"') : html.index("panel-watchlist")]
+
+    assert "Knjiga naloga" in panel
+    assert 'id="orderbook-toggle"' in panel
+    assert "Učitavanje…" in panel
+    assert "Zastarelo" in panel
+    for column in ["Cena", "Količina", "Ukupno"]:
+        assert f'<th class="num">{column}</th>' in panel
+    asks = panel[panel.index('id="orderbook-asks"') : panel.index("orderbook-mid")]
+    bids = panel[panel.index('id="orderbook-bids"') :]
+    assert asks.count('class="orderbook-price"') == 10
+    assert bids.count('class="orderbook-price"') == 10
+
+
+def test_orderbook_script_loads_before_app_script(client):
+    html = client.get("/").text
+
+    orderbook_script = html.index('<script src="/static/js/orderbook.js"></script>')
+    app_script = html.index('<script src="/static/js/app.js"></script>')
+    assert orderbook_script < app_script

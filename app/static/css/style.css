@@ -637,6 +637,166 @@ h2 {
   color: #58a6ff;
 }
 
+/* Order book */
+
+.panel-orderbook {
+  grid-column: 1 / -1;
+  align-self: start;
+}
+
+/* Wide screens: the order book sits next to the chart. */
+@media (min-width: 1100px) {
+  .panel-chart {
+    grid-column: span 2;
+  }
+
+  .panel-orderbook {
+    grid-column: span 1;
+  }
+}
+
+.orderbook-wrap {
+  position: relative;
+}
+
+.orderbook-message {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.orderbook-message[hidden],
+.orderbook-stale[hidden],
+.orderbook[hidden],
+.orderbook-imbalance[hidden] {
+  display: none;
+}
+
+.orderbook-stale {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+  color: #1b1300;
+  background: var(--yellow);
+  pointer-events: none;
+}
+
+.orderbook {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.orderbook.is-stale {
+  opacity: 0.5;
+}
+
+.orderbook th {
+  padding: 4px 8px;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.orderbook td {
+  padding: 2px 8px;
+  height: 22px;
+}
+
+.orderbook .num {
+  text-align: right;
+}
+
+/* The depth bar is a gradient on the row, so it can span all three cells. */
+.orderbook-side tr {
+  --depth: 0%;
+  background-image: linear-gradient(
+    to left,
+    var(--depth-color) var(--depth),
+    transparent var(--depth)
+  );
+}
+
+.orderbook-asks tr {
+  --depth-color: rgba(248, 81, 73, 0.15);
+}
+
+.orderbook-bids tr {
+  --depth-color: rgba(63, 185, 80, 0.15);
+}
+
+.orderbook-price {
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.orderbook-asks .orderbook-price {
+  color: var(--red);
+}
+
+.orderbook-bids .orderbook-price {
+  color: var(--green);
+}
+
+.orderbook-price:hover:not(:disabled),
+.orderbook-price:focus-visible {
+  text-decoration: underline;
+}
+
+.orderbook-price:disabled {
+  cursor: default;
+}
+
+.orderbook-mid td {
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+#orderbook-spread {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.orderbook-imbalance {
+  margin-top: 12px;
+}
+
+.imbalance-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.imbalance-buyers {
+  background: var(--green);
+}
+
+.imbalance-sellers {
+  background: var(--red);
+}
+
+.imbalance-label {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 /* Narrow screens */
 
 @media (max-width: 900px) {
