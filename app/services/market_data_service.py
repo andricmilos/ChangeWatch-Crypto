@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -22,6 +23,29 @@ Freshness = Literal["live", "stale", "no_data"]
 PriceSource = Literal["ws", "rest"]
 MarketEvent = dict[str, Any]
 Subscriber = Callable[[MarketEvent], Awaitable[None]]
+
+TIMING_REPORT_INTERVAL_SECONDS = 60
+
+
+class SubscriberTiming:
+    """How often one subscriber ran and how long it took, since the last report."""
+
+    def __init__(self, name: str, callback: Subscriber) -> None:
+        self.name = name
+        self.callback = callback
+        self.calls = 0
+        self.total_seconds = 0.0
+        self.max_seconds = 0.0
+
+    def record(self, seconds: float) -> None:
+        self.calls += 1
+        self.total_seconds += seconds
+        self.max_seconds = max(self.max_seconds, seconds)
+
+    def reset(self) -> None:
+        self.calls = 0
+        self.total_seconds = 0.0
+        self.max_seconds = 0.0
 
 
 def _same_market_data(old: MarketTicker, new: MarketTicker) -> bool:
@@ -76,7 +100,7 @@ class MarketDataService:
         # Kept apart from _tickers, so a rolling message can never touch the 24h data.
         self._rolling: dict[tuple[str, str], RollingChange] = {}
         self._last_update_at: dict[str, datetime] = {}
-        self._subscribers: list[Subscriber] = []
+        self._subscribers: list[SubscriberTiming] = []
         self._task: asyncio.Task[None] | None = None
         # "rest" while RestFallbackPoller feeds prices because the stream is down.
         self.price_source: PriceSource = "ws"
@@ -92,8 +116,32 @@ class MarketDataService:
         await self._task
         self._task = None
 
-    def subscribe(self, callback: Subscriber) -> None:
-        self._subscribers.append(callback)
+    def subscribe(self, callback: Subscriber, name: str | None = None) -> None:
+        """`name` labels the subscriber in the timing report; defaults to its qualified name."""
+        label = name or str(getattr(callback, "__qualname__", repr(callback)))
+        self._subscribers.append(SubscriberTiming(label, callback))
+
+    def log_subscriber_timings(self, interval_seconds: float) -> None:
+        """One INFO line per subscriber for the window that just ended, then start a new one."""
+        for timing in self._subscribers:
+            average_ms = timing.total_seconds / timing.calls * 1000 if timing.calls else 0.0
+            logger.info(
+                "Subscriber %s: %d call(s) in the last %.0f s, avg %.1f ms, max %.1f ms",
+                timing.name,
+                timing.calls,
+                interval_seconds,
+                average_ms,
+                timing.max_seconds * 1000,
+            )
+            timing.reset()
+
+    async def run_timing_report(
+        self, interval_seconds: float = TIMING_REPORT_INTERVAL_SECONDS
+    ) -> None:
+        """Background task: log how long each subscriber takes, every `interval_seconds`."""
+        while True:
+            await asyncio.sleep(interval_seconds)
+            self.log_subscriber_timings(interval_seconds)
 
     async def handle_ticker(self, ticker: MarketTicker) -> None:
         previous = self._tickers.get(ticker.symbol)
@@ -203,11 +251,14 @@ class MarketDataService:
         return None if change is None else change.change_percent
 
     async def _notify(self, event: MarketEvent) -> None:
-        for subscriber in list(self._subscribers):
+        for timing in list(self._subscribers):
+            started = time.perf_counter()
             try:
-                await subscriber(event)
+                await timing.callback(event)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 # One broken consumer (browser broadcast, storage, alerts) must not affect others.
                 logger.exception("Market data subscriber failed for %s event", event["type"])
+            # Failed calls count too: a subscriber that hangs before failing is still slow.
+            timing.record(time.perf_counter() - started)
