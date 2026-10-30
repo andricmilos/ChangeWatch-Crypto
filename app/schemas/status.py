@@ -73,6 +73,39 @@ class AlertStats(BaseModel):
     triggered: int = Field(description="Alerts fired since start.", examples=[1])
 
 
+class EventQueueStatus(BaseModel):
+    name: str = Field(description="Subscriber that owns the queue.", examples=["candle_storage"])
+    policy: str = Field(
+        description="latest (only the newest event per pair waits) or keep_all.",
+        examples=["keep_all"],
+    )
+    size: int = Field(description="Events waiting now.", examples=[3])
+    capacity: int = Field(description="Most events the queue can hold.", examples=[1000])
+    max_size_seen: int = Field(
+        description="Most events waiting at once since start.", examples=[41]
+    )
+    processed: int = Field(
+        description="Events the subscriber handled since start, failed ones included.",
+        examples=[18230],
+    )
+    replaced: int = Field(
+        description="latest only: waiting events replaced by a newer one for the same pair.",
+        examples=[512],
+    )
+    dropped: int = Field(description="Events lost because the queue was full.", examples=[0])
+    latency_samples: int = Field(
+        description="Events behind the delay figures (the last 1000 at most).", examples=[1000]
+    )
+    latency_avg_ms: float | None = Field(
+        description="Average delay from publish to handled; null before the first event.",
+        examples=[2.4],
+    )
+    latency_p95_ms: float | None = Field(
+        description="95% of the sampled events were handled within this delay.",
+        examples=[11.8],
+    )
+
+
 class StatusResponse(BaseModel):
     started_at: datetime = Field(
         description="When the server started.", examples=["2026-10-21T12:00:00+00:00"]
@@ -85,3 +118,4 @@ class StatusResponse(BaseModel):
     browsers: BrowserStats
     database: DatabaseStats
     alerts: AlertStats
+    event_queues: list[EventQueueStatus]

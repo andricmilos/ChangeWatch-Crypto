@@ -49,6 +49,43 @@ the connection to the server is down. Clicking a price puts it into the new-aler
 target price for that pair; nothing is saved until the form is submitted. The "Knjiga naloga"
 toggle switches the panel and its subscription off; the choice is remembered in the browser.
 
+## Event processing architecture
+
+```text
+Binance WebSocket
+      │  ticker, rolling, kline, status
+      ▼
+MarketDataService ── keeps the latest state, drops duplicates
+      │  publish(): only enqueues, never waits for a subscriber (*)
+      ▼
+EventBus ── one bounded queue + one worker task per subscriber
+      ├─► [latest   queue] ─► worker ─► browser_broadcast  (WebSocket to browsers)
+      ├─► [keep_all queue] ─► worker ─► candle_storage     (database)
+      └─► [keep_all queue] ─► worker ─► alerts             (price alerts)
+```
+
+(*) Except when a `keep_all` queue is full, see below. Order books take their own path
+(Binance → OrderBookService → browsers) and do not go through the EventBus.
+
+Each subscriber works at its own pace, so a slow database write no longer delays the prices
+in the browser. What happens when a subscriber falls behind depends on its queue policy:
+
+- **`latest`** (browsers): only the newest event per pair and kind waits in the queue. A new
+  BTC/EUR price replaces the waiting one in place (counted as `replaced`), so a slow browser
+  connection gets the current price instead of a backlog of old ones. Closed candles have
+  their own key and are never replaced by the next candle. If the queue is full of different
+  pairs, the oldest waiting event is dropped.
+- **`keep_all`** (database, alerts): every event is kept, in order. When the queue is full,
+  `publish` waits up to 1 s for room (backpressure); if there is still none, the event is
+  dropped, counted as `dropped` and logged as an error.
+
+Queue sizes come from `EVENT_QUEUE_SIZE_LATEST` (default 100) and
+`EVENT_QUEUE_SIZE_KEEP_ALL` (default 1000). `GET /api/status` lists every queue under
+`event_queues`: current and largest size seen, processed, replaced and dropped events, and the
+delay from publish until the subscriber has handled the event (average and p95 over the last
+1000 events). A queue more than 80% full or with a p95 delay above 500 ms logs a WARNING, at
+most once a minute per queue.
+
 ## Limitations
 
 - Chart notes (`/api/notes`) are shared by every visitor: there are no accounts, so anyone

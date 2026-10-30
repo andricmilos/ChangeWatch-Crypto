@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import math
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable, Hashable
 from typing import Any, Literal
 
@@ -12,9 +14,46 @@ EventKey = Callable[[MarketEvent], Hashable]
 # "latest": only the newest event per key matters (browsers). "keep_all": every event
 # must arrive (alerts, candle storage).
 QueuePolicy = Literal["latest", "keep_all"]
+# An event together with the clock value at which it was published.
+QueuedEvent = tuple[float, MarketEvent]
+PutResult = Literal["added", "replaced", "dropped_oldest"]
 
 KEEP_ALL_PUT_TIMEOUT_SECONDS = 1.0
 STOP_DRAIN_TIMEOUT_SECONDS = 5.0
+
+LATENCY_SAMPLES = 1000
+FULL_WARNING_RATIO = 0.8
+SLOW_WARNING_SECONDS = 0.5
+WARNING_INTERVAL_SECONDS = 60.0
+# p95 sorts the whole window, so it is not worth recomputing after every event.
+LATENCY_CHECK_INTERVAL_SECONDS = 1.0
+
+
+class LatencyWindow:
+    """The last `size` delays from publish to handled, for an average and a p95."""
+
+    def __init__(self, size: int = LATENCY_SAMPLES) -> None:
+        self._samples: deque[float] = deque(maxlen=size)
+
+    def __len__(self) -> int:
+        return len(self._samples)
+
+    def add(self, seconds: float) -> None:
+        self._samples.append(seconds)
+
+    def average(self) -> float | None:
+        return sum(self._samples) / len(self._samples) if self._samples else None
+
+    def p95(self) -> float | None:
+        """Nearest rank: the smallest delay that at least 95% of the samples do not exceed."""
+        if not self._samples:
+            return None
+        ordered = sorted(self._samples)
+        return ordered[math.ceil(0.95 * len(ordered)) - 1]
+
+
+def _to_ms(seconds: float | None) -> float | None:
+    return None if seconds is None else round(seconds * 1000, 1)
 
 
 class LatestQueue:
@@ -27,7 +66,7 @@ class LatestQueue:
     def __init__(self, maxsize: int, key: EventKey) -> None:
         self.maxsize = maxsize
         self._key = key
-        self._items: dict[Hashable, MarketEvent] = {}
+        self._items: dict[Hashable, QueuedEvent] = {}
         self._has_items = asyncio.Event()
         # Waiting events plus the one being handled; join() returns when it reaches 0.
         self._unfinished = 0
@@ -37,25 +76,28 @@ class LatestQueue:
     def qsize(self) -> int:
         return len(self._items)
 
-    def put(self, event: MarketEvent) -> MarketEvent | None:
-        """Never waits. Returns the event pushed out to make room, if the queue was full."""
-        key = self._key(event)
+    def put(self, item: QueuedEvent) -> PutResult:
+        """Never waits. "dropped_oldest": the queue was full and its oldest event made room."""
+        key = self._key(item[1])
         if key in self._items:
-            self._items[key] = event
-            return None
-        dropped = None
+            # The newer event also brings its own publish time, so its delay is measured
+            # from when this data arrived, not from when the slot was first taken.
+            self._items[key] = item
+            return "replaced"
+        result: PutResult = "added"
         if len(self._items) >= self.maxsize:
             # Only happens with more distinct keys than slots; the oldest is the most outdated.
             oldest_key = next(iter(self._items))
-            dropped = self._items.pop(oldest_key)
+            del self._items[oldest_key]
+            result = "dropped_oldest"
         else:
             self._unfinished += 1
             self._all_done.clear()
-        self._items[key] = event
+        self._items[key] = item
         self._has_items.set()
-        return dropped
+        return result
 
-    async def get(self) -> MarketEvent:
+    async def get(self) -> QueuedEvent:
         while not self._items:
             self._has_items.clear()
             await self._has_items.wait()
@@ -72,7 +114,7 @@ class LatestQueue:
 
 
 class Subscription:
-    """One subscriber with its own queue and worker, plus counters for the timing report."""
+    """One subscriber with its own queue and worker, plus the counters behind /api/status."""
 
     def __init__(
         self, name: str, callback: Subscriber, policy: QueuePolicy, maxsize: int, key: EventKey
@@ -80,25 +122,33 @@ class Subscription:
         self.name = name
         self.callback = callback
         self.policy = policy
-        self.queue: LatestQueue | asyncio.Queue[MarketEvent] = (
+        self.queue: LatestQueue | asyncio.Queue[QueuedEvent] = (
             LatestQueue(maxsize, key) if policy == "latest" else asyncio.Queue(maxsize)
         )
         self.worker: asyncio.Task[None] | None = None
-        # Since start; never reset, unlike the timing window below.
+        # Counters since start, never reset.
+        self.processed = 0
+        self.replaced = 0
         self.dropped = 0
-        self.calls = 0
-        self.total_seconds = 0.0
-        self.max_seconds = 0.0
+        self.max_size_seen = 0
+        self.latencies = LatencyWindow()
+        self.warned_at: float | None = None
+        self.latency_checked_at = -math.inf
 
-    def record(self, seconds: float) -> None:
-        self.calls += 1
-        self.total_seconds += seconds
-        self.max_seconds = max(self.max_seconds, seconds)
-
-    def reset_timings(self) -> None:
-        self.calls = 0
-        self.total_seconds = 0.0
-        self.max_seconds = 0.0
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "policy": self.policy,
+            "size": self.queue.qsize(),
+            "capacity": self.queue.maxsize,
+            "max_size_seen": self.max_size_seen,
+            "processed": self.processed,
+            "replaced": self.replaced,
+            "dropped": self.dropped,
+            "latency_samples": len(self.latencies),
+            "latency_avg_ms": _to_ms(self.latencies.average()),
+            "latency_p95_ms": _to_ms(self.latencies.p95()),
+        }
 
 
 class EventBus:
@@ -115,12 +165,15 @@ class EventBus:
         key: EventKey,
         put_timeout: float = KEEP_ALL_PUT_TIMEOUT_SECONDS,
         drain_timeout: float = STOP_DRAIN_TIMEOUT_SECONDS,
+        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self.latest_queue_size = latest_queue_size
         self.keep_all_queue_size = keep_all_queue_size
         self.key = key
         self.put_timeout = put_timeout
         self.drain_timeout = drain_timeout
+        # Measures queue delays and spaces out warnings; tests pass a fake one.
+        self.clock = clock
         self.subscriptions: list[Subscription] = []
         self._started = False
         self._closed = False
@@ -152,47 +205,54 @@ class EventBus:
             return
         # A service used without start() (e.g. in tests) still delivers its events.
         self.start()
+        # One timestamp for all queues: a keep_all wait for room counts as delay too.
+        item = (self.clock(), event)
         for subscription in self.subscriptions:
             if isinstance(subscription.queue, LatestQueue):
-                if subscription.queue.put(event) is not None:
+                result = subscription.queue.put(item)
+                if result == "replaced":
+                    subscription.replaced += 1
+                elif result == "dropped_oldest":
                     subscription.dropped += 1
                     logger.warning(
                         "Queue of %s is full; its oldest waiting event was dropped",
                         subscription.name,
                     )
             else:
-                await self._put_keep_all(subscription, subscription.queue, event)
+                await self._put_keep_all(subscription, subscription.queue, item)
+            subscription.max_size_seen = max(subscription.max_size_seen, subscription.queue.qsize())
+            if subscription.queue.qsize() > FULL_WARNING_RATIO * subscription.queue.maxsize:
+                self._warn(subscription)
         # Socket messages that are already buffered come in without a pause, so without this
         # a burst would reach the workers only after it ended.
         await asyncio.sleep(0)
 
     async def _put_keep_all(
-        self, subscription: Subscription, queue: asyncio.Queue[MarketEvent], event: MarketEvent
+        self, subscription: Subscription, queue: asyncio.Queue[QueuedEvent], item: QueuedEvent
     ) -> None:
         try:
-            queue.put_nowait(event)
+            queue.put_nowait(item)
             return
         except asyncio.QueueFull:
             pass
         # Backpressure: the producer waits for this subscriber to catch up, but only briefly,
         # because meanwhile no other subscriber gets new events either.
         try:
-            await asyncio.wait_for(queue.put(event), self.put_timeout)
+            await asyncio.wait_for(queue.put(item), self.put_timeout)
         except TimeoutError:
             subscription.dropped += 1
             logger.error(
                 "Queue of %s still full after %.1f s; %s event dropped (%d dropped so far)",
                 subscription.name,
                 self.put_timeout,
-                event["type"],
+                item[1]["type"],
                 subscription.dropped,
             )
 
     async def _work(self, subscription: Subscription) -> None:
         queue = subscription.queue
         while True:
-            event = await queue.get()
-            started = time.perf_counter()
+            published_at, event = await queue.get()
             try:
                 await subscription.callback(event)
             except asyncio.CancelledError:
@@ -206,8 +266,42 @@ class EventBus:
                 )
             finally:
                 # Failed calls count too: a subscriber that hangs before failing is still slow.
-                subscription.record(time.perf_counter() - started)
+                subscription.processed += 1
+                subscription.latencies.add(self.clock() - published_at)
                 queue.task_done()
+            self._check_latency(subscription)
+
+    def _check_latency(self, subscription: Subscription) -> None:
+        now = self.clock()
+        if now - subscription.latency_checked_at < LATENCY_CHECK_INTERVAL_SECONDS:
+            return
+        subscription.latency_checked_at = now
+        p95 = subscription.latencies.p95()
+        if p95 is not None and p95 > SLOW_WARNING_SECONDS:
+            self._warn(subscription)
+
+    def _warn(self, subscription: Subscription) -> None:
+        """One WARNING per queue per minute, with both numbers that can trigger it."""
+        now = self.clock()
+        if (
+            subscription.warned_at is not None
+            and now - subscription.warned_at < WARNING_INTERVAL_SECONDS
+        ):
+            return
+        subscription.warned_at = now
+        p95_ms = _to_ms(subscription.latencies.p95())
+        logger.warning(
+            "Queue of %s is falling behind: %d of %d slots used, p95 delay %s over the last "
+            "%d event(s)",
+            subscription.name,
+            subscription.queue.qsize(),
+            subscription.queue.maxsize,
+            "n/a" if p95_ms is None else f"{p95_ms:.0f} ms",
+            len(subscription.latencies),
+        )
+
+    def snapshot(self) -> list[dict[str, Any]]:
+        return [subscription.snapshot() for subscription in self.subscriptions]
 
     async def join(self) -> None:
         """Wait until every event published so far has been handled."""

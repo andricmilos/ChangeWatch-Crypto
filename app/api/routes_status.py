@@ -29,7 +29,7 @@ Alerts = Annotated[AlertService, Depends(get_alert_service)]
     summary="Runtime diagnostics",
     description=(
         "Counters and states from memory: Binance connection, message rates, per-pair "
-        "freshness, connected browsers, database writes and alerts."
+        "freshness, connected browsers, database writes, alerts and event queues."
     ),
     responses={200: {"model": StatusResponse}},
 )
@@ -48,4 +48,5 @@ async def get_status(
     ]
     status["browsers"]["connected"] = len(manager.active_connections)
     status["alerts"]["active"] = alert_service.active_count()
+    status["event_queues"] = service.events.snapshot()
     return status

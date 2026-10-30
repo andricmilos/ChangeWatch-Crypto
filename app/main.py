@@ -93,8 +93,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     service.subscribe(candle_service.handle_event, name="candle_storage", policy="keep_all")
     service.subscribe(alert_service.handle_event, name="alerts", policy="keep_all")
     await service.start()
-    timing_report_task = asyncio.create_task(service.run_timing_report())
-    app.state.timing_report_task = timing_report_task
     cleanup_task = asyncio.create_task(
         candle_service.run_cleanup(get_settings().candle_retention_days)
     )
@@ -109,7 +107,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.rest_fallback_task = rest_fallback_task
     yield
     # Cancelled before the REST client closes, so no fallback request uses a closed client.
-    for task in (cleanup_task, rest_fallback_task, timing_report_task):
+    for task in (cleanup_task, rest_fallback_task):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task

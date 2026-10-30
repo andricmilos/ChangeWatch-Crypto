@@ -22,8 +22,6 @@ logger = logging.getLogger(__name__)
 Freshness = Literal["live", "stale", "no_data"]
 PriceSource = Literal["ws", "rest"]
 
-TIMING_REPORT_INTERVAL_SECONDS = 60
-
 
 def latest_event_key(event: MarketEvent) -> Hashable:
     """What a newer event replaces in a "latest" queue: the same kind of data for the same pair."""
@@ -122,32 +120,6 @@ class MarketDataService:
         """
         label = name or str(getattr(callback, "__qualname__", repr(callback)))
         self.events.subscribe(callback, label, policy)
-
-    def log_subscriber_timings(self, interval_seconds: float) -> None:
-        """One INFO line per subscriber for the window that just ended, then start a new one."""
-        for subscription in self.events.subscriptions:
-            calls = subscription.calls
-            average_ms = subscription.total_seconds / calls * 1000 if calls else 0.0
-            logger.info(
-                "Subscriber %s: %d call(s) in the last %.0f s, avg %.1f ms, max %.1f ms, "
-                "%d waiting, %d dropped since start",
-                subscription.name,
-                calls,
-                interval_seconds,
-                average_ms,
-                subscription.max_seconds * 1000,
-                subscription.queue.qsize(),
-                subscription.dropped,
-            )
-            subscription.reset_timings()
-
-    async def run_timing_report(
-        self, interval_seconds: float = TIMING_REPORT_INTERVAL_SECONDS
-    ) -> None:
-        """Background task: log how long each subscriber takes, every `interval_seconds`."""
-        while True:
-            await asyncio.sleep(interval_seconds)
-            self.log_subscriber_timings(interval_seconds)
 
     async def handle_ticker(self, ticker: MarketTicker) -> None:
         previous = self._tickers.get(ticker.symbol)

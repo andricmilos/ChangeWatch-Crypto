@@ -1,7 +1,6 @@
 """How market events flow from MarketDataService to its subscribers, and how long that takes."""
 
 import asyncio
-import logging
 import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -48,49 +47,11 @@ async def test_slow_subscriber_does_not_delay_browser():
     assert all(delay < BROWSER_DEADLINE_SECONDS for delay in delays), delays
 
 
-async def test_subscriber_timings_are_logged_and_reset(caplog):
-    service = MarketDataService(Settings(_env_file=None))  # never started
-
-    async def fast(event):
-        pass
-
-    async def slow(event):
-        await asyncio.sleep(0.02)
-
-    async def broken(event):
-        raise RuntimeError("boom")
-
-    service.subscribe(fast, name="fast")
-    service.subscribe(slow, name="slow")
-    service.subscribe(broken, name="broken")
-    await service.handle_ticker(make_ticker("72000", 0))
-    await service.handle_ticker(make_ticker("72001", 1))
-    await service.events.join()
-
-    with caplog.at_level(logging.INFO, logger="app.services.market_data_service"):
-        service.log_subscriber_timings(60)
-
-    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("Subscriber")]
-    assert len(lines) == 3
-    assert lines[0].startswith("Subscriber fast: 2 call(s) in the last 60 s")
-    assert lines[1].startswith("Subscriber slow: 2 call(s)")
-    assert lines[2].startswith("Subscriber broken: 2 call(s)")
-    slow_max_ms = float(lines[1].split("max ")[1].split(" ms")[0])
-    assert slow_max_ms >= 20
-
-    caplog.clear()
-    with caplog.at_level(logging.INFO, logger="app.services.market_data_service"):
-        service.log_subscriber_timings(60)
-    assert "Subscriber fast: 0 call(s)" in caplog.text
-
-
-def test_subscriber_name_defaults_to_qualified_name(caplog):
+def test_subscriber_name_defaults_to_qualified_name():
     service = MarketDataService(Settings(_env_file=None))
 
     async def record(event):
         pass
 
     service.subscribe(record)
-    with caplog.at_level(logging.INFO, logger="app.services.market_data_service"):
-        service.log_subscriber_timings(60)
-    assert "record" in caplog.text
+    assert service.events.subscriptions[0].name.endswith("record")

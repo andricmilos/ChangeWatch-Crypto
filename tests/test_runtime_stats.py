@@ -279,6 +279,7 @@ def test_status_returns_expected_fields(client):
         "browsers",
         "database",
         "alerts",
+        "event_queues",
     }
     assert body["exchange"] == {
         "status": "stopped",
@@ -311,6 +312,26 @@ def test_status_returns_expected_fields(client):
         "last_cleanup_deleted": None,
     }
     assert body["alerts"] == {"active": 0, "triggered": 0}
+    assert body["event_queues"] == []
+
+
+async def test_status_shows_each_event_queue(client, market_service):
+    async def handle(event):
+        pass
+
+    market_service.subscribe(handle, name="alerts", policy="keep_all")
+    await market_service.handle_ticker(make_ticker("75000"))
+    await market_service.events.join()
+
+    [queue] = client.get("/api/status").json()["event_queues"]
+    await market_service.stop()
+
+    assert queue["name"] == "alerts"
+    assert queue["policy"] == "keep_all"
+    assert queue["capacity"] == Settings(_env_file=None).event_queue_size_keep_all
+    assert (queue["size"], queue["processed"], queue["dropped"]) == (0, 1, 0)
+    assert queue["latency_samples"] == 1
+    assert queue["latency_p95_ms"] is not None
 
 
 def test_status_does_not_reveal_sensitive_data(client, stats):
