@@ -212,6 +212,7 @@ async def test_fired_alert_is_counted(alert_service, market_service, stats):
 
     await market_service.handle_ticker(make_ticker("75000"))
     await market_service.handle_ticker(make_ticker("76000", seconds=1))
+    await market_service.events.join()
 
     assert stats.alerts_triggered == 1
     assert alert_service.active_count() == 0

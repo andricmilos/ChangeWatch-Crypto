@@ -87,10 +87,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             snapshot.symbol, snapshot.last_update_id, orderbook_message(snapshot)
         )
 
-    service.subscribe(broadcast_market_event, name="browser_broadcast")
+    # Browsers only need each pair's newest price; storage and alerts must see every event.
+    service.subscribe(broadcast_market_event, name="browser_broadcast", policy="latest")
     orderbook_service.subscribe(send_orderbook)
-    service.subscribe(candle_service.handle_event, name="candle_storage")
-    service.subscribe(alert_service.handle_event, name="alerts")
+    service.subscribe(candle_service.handle_event, name="candle_storage", policy="keep_all")
+    service.subscribe(alert_service.handle_event, name="alerts", policy="keep_all")
     await service.start()
     timing_report_task = asyncio.create_task(service.run_timing_report())
     app.state.timing_report_task = timing_report_task
@@ -112,6 +113,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+    # Stops the stream, then lets the subscriber queues drain (at most 5 s) before the
+    # REST client and database they may still use go away.
     await service.stop()
     await rest_client.close()
 

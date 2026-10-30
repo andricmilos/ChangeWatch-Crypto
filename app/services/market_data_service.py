@@ -1,13 +1,13 @@
 import asyncio
 import logging
-import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Hashable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
 from app.config import Settings
 from app.schemas.market import KlineUpdate, MarketTicker, RollingChange
+from app.services.event_bus import EventBus, MarketEvent, QueuePolicy, Subscriber
 from app.services.exchange_client import (
     BinanceStreamClient,
     ClientStatus,
@@ -21,31 +21,23 @@ logger = logging.getLogger(__name__)
 
 Freshness = Literal["live", "stale", "no_data"]
 PriceSource = Literal["ws", "rest"]
-MarketEvent = dict[str, Any]
-Subscriber = Callable[[MarketEvent], Awaitable[None]]
 
 TIMING_REPORT_INTERVAL_SECONDS = 60
 
 
-class SubscriberTiming:
-    """How often one subscriber ran and how long it took, since the last report."""
-
-    def __init__(self, name: str, callback: Subscriber) -> None:
-        self.name = name
-        self.callback = callback
-        self.calls = 0
-        self.total_seconds = 0.0
-        self.max_seconds = 0.0
-
-    def record(self, seconds: float) -> None:
-        self.calls += 1
-        self.total_seconds += seconds
-        self.max_seconds = max(self.max_seconds, seconds)
-
-    def reset(self) -> None:
-        self.calls = 0
-        self.total_seconds = 0.0
-        self.max_seconds = 0.0
+def latest_event_key(event: MarketEvent) -> Hashable:
+    """What a newer event replaces in a "latest" queue: the same kind of data for the same pair."""
+    data = event["data"]
+    match event["type"]:
+        case "ticker":
+            return ("ticker", data.symbol)
+        case "rolling":
+            return ("rolling", data.symbol, data.window)
+        case "kline":
+            # The open time keeps a closed candle from being replaced by the next one's start.
+            return ("kline", data.symbol, data.interval, data.open_time)
+        case _:
+            return (event["type"],)
 
 
 def _same_market_data(old: MarketTicker, new: MarketTicker) -> bool:
@@ -100,40 +92,54 @@ class MarketDataService:
         # Kept apart from _tickers, so a rolling message can never touch the 24h data.
         self._rolling: dict[tuple[str, str], RollingChange] = {}
         self._last_update_at: dict[str, datetime] = {}
-        self._subscribers: list[SubscriberTiming] = []
+        self.events = EventBus(
+            settings.event_queue_size_latest, settings.event_queue_size_keep_all, latest_event_key
+        )
         self._task: asyncio.Task[None] | None = None
         # "rest" while RestFallbackPoller feeds prices because the stream is down.
         self.price_source: PriceSource = "ws"
         self._rest_polled_at: datetime | None = None
 
     async def start(self) -> None:
+        self.events.start()
         self._task = asyncio.create_task(self.client.run())
 
     async def stop(self) -> None:
-        if self._task is None:
-            return
-        await self.client.stop()
-        await self._task
-        self._task = None
+        # The stream goes first, so no new events arrive while the queues drain.
+        if self._task is not None:
+            await self.client.stop()
+            await self._task
+            self._task = None
+        await self.events.stop()
 
-    def subscribe(self, callback: Subscriber, name: str | None = None) -> None:
-        """`name` labels the subscriber in the timing report; defaults to its qualified name."""
+    def subscribe(
+        self, callback: Subscriber, name: str | None = None, policy: QueuePolicy = "keep_all"
+    ) -> None:
+        """`name` labels the subscriber in logs; defaults to its qualified name.
+
+        `policy` says what happens when its queue is full (see EventBus); "keep_all" is the
+        default because losing an event is the safer mistake to rule out.
+        """
         label = name or str(getattr(callback, "__qualname__", repr(callback)))
-        self._subscribers.append(SubscriberTiming(label, callback))
+        self.events.subscribe(callback, label, policy)
 
     def log_subscriber_timings(self, interval_seconds: float) -> None:
         """One INFO line per subscriber for the window that just ended, then start a new one."""
-        for timing in self._subscribers:
-            average_ms = timing.total_seconds / timing.calls * 1000 if timing.calls else 0.0
+        for subscription in self.events.subscriptions:
+            calls = subscription.calls
+            average_ms = subscription.total_seconds / calls * 1000 if calls else 0.0
             logger.info(
-                "Subscriber %s: %d call(s) in the last %.0f s, avg %.1f ms, max %.1f ms",
-                timing.name,
-                timing.calls,
+                "Subscriber %s: %d call(s) in the last %.0f s, avg %.1f ms, max %.1f ms, "
+                "%d waiting, %d dropped since start",
+                subscription.name,
+                calls,
                 interval_seconds,
                 average_ms,
-                timing.max_seconds * 1000,
+                subscription.max_seconds * 1000,
+                subscription.queue.qsize(),
+                subscription.dropped,
             )
-            timing.reset()
+            subscription.reset_timings()
 
     async def run_timing_report(
         self, interval_seconds: float = TIMING_REPORT_INTERVAL_SECONDS
@@ -251,14 +257,5 @@ class MarketDataService:
         return None if change is None else change.change_percent
 
     async def _notify(self, event: MarketEvent) -> None:
-        for timing in list(self._subscribers):
-            started = time.perf_counter()
-            try:
-                await timing.callback(event)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                # One broken consumer (browser broadcast, storage, alerts) must not affect others.
-                logger.exception("Market data subscriber failed for %s event", event["type"])
-            # Failed calls count too: a subscriber that hangs before failing is still slow.
-            timing.record(time.perf_counter() - started)
+        # Only enqueues: each subscriber's own worker handles the event (see EventBus).
+        await self.events.publish(event)

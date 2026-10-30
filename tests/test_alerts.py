@@ -55,13 +55,21 @@ async def session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
 
 
 @pytest.fixture
-def market_service() -> MarketDataService:
+async def market_service() -> AsyncIterator[MarketDataService]:
     # Never started, so there is no Binance connection; tickers are fed in directly.
     service = MarketDataService(Settings(_env_file=None))
     service.client.status = "connected"
     # Freshness follows the connection: it counts as live while any stream sends messages.
     service.client.last_message_at = datetime.now(UTC)
-    return service
+    yield service
+    # Torn down before session_factory, so no alert worker touches a closed database.
+    await service.stop()
+
+
+async def feed(market_service: MarketDataService, ticker: MarketTicker) -> None:
+    """Hand a ticker in and wait until the alert worker has handled it."""
+    await market_service.handle_ticker(ticker)
+    await market_service.events.join()
 
 
 @pytest.fixture
@@ -138,10 +146,10 @@ def test_condition_at_the_boundary(condition, price, expected):
 async def test_above_fires_exactly_at_target(alert_service, market_service, manager):
     alert = await create_alert(alert_service, "75000", "above")
 
-    await market_service.handle_ticker(make_ticker("74999.99"))
+    await feed(market_service, make_ticker("74999.99"))
     assert triggered_messages(manager) == []
 
-    await market_service.handle_ticker(make_ticker("75000", seconds=1))
+    await feed(market_service, make_ticker("75000", seconds=1))
     [message] = triggered_messages(manager)
     assert message["data"]["id"] == alert.id
     assert message["data"]["is_active"] is False
@@ -152,17 +160,17 @@ async def test_above_fires_exactly_at_target(alert_service, market_service, mana
 async def test_below_fires_exactly_at_target(alert_service, market_service, manager):
     await create_alert(alert_service, "74999.99", "below")
 
-    await market_service.handle_ticker(make_ticker("75000"))
+    await feed(market_service, make_ticker("75000"))
     assert triggered_messages(manager) == []
 
-    await market_service.handle_ticker(make_ticker("74999.99", seconds=1))
+    await feed(market_service, make_ticker("74999.99", seconds=1))
     assert len(triggered_messages(manager)) == 1
 
 
 async def test_alert_for_another_symbol_is_not_checked(alert_service, market_service, manager):
     await create_alert(alert_service, "1", "above")
 
-    await market_service.handle_ticker(make_ticker("2100", symbol="ETHEUR"))
+    await feed(market_service, make_ticker("2100", symbol="ETHEUR"))
 
     assert triggered_messages(manager) == []
 
@@ -174,7 +182,7 @@ async def test_100_rapid_tickers_fire_exactly_once(
     alert_service, market_service, manager, session_factory
 ):
     alert = await create_alert(alert_service, "75000", "above")
-    await market_service.handle_ticker(make_ticker("75001"))
+    await feed(market_service, make_ticker("75001"))
 
     # Every event above the target arrives at once, as if messages raced each other.
     events = [
@@ -193,12 +201,12 @@ async def test_alert_already_fired_in_database_is_not_fired_again(
     alert_service, market_service, manager
 ):
     alert = await create_alert(alert_service, "75000", "above")
-    await market_service.handle_ticker(make_ticker("75001"))
+    await feed(market_service, make_ticker("75001"))
     assert len(triggered_messages(manager)) == 1
 
     # Simulate stale memory (e.g. another trigger in flight): the atomic UPDATE hits 0 rows.
     alert_service._active["BTCEUR"] = [alert]
-    await market_service.handle_ticker(make_ticker("75002", seconds=1))
+    await feed(market_service, make_ticker("75002", seconds=1))
 
     assert len(triggered_messages(manager)) == 1
 
@@ -207,7 +215,7 @@ async def test_fired_alert_stays_off_after_restart(
     alert_service, market_service, manager, session_factory
 ):
     await create_alert(alert_service, "75000", "above")
-    await market_service.handle_ticker(make_ticker("75001"))
+    await feed(market_service, make_ticker("75001"))
 
     restarted = AlertService(session_factory, market_service, manager)
     await restarted.load_active()
@@ -218,13 +226,47 @@ async def test_fired_alert_stays_off_after_restart(
 async def test_created_alert_with_condition_already_met_fires_on_next_tick(
     alert_service, market_service, manager
 ):
-    await market_service.handle_ticker(make_ticker("75001"))
+    await feed(market_service, make_ticker("75001"))
     await create_alert(alert_service, "75000", "above")
     assert triggered_messages(manager) == []
 
-    await market_service.handle_ticker(make_ticker("75002", seconds=1))
+    await feed(market_service, make_ticker("75002", seconds=1))
 
     assert len(triggered_messages(manager)) == 1
+
+
+async def test_short_spike_fires_even_when_a_normal_price_follows(
+    alert_service, market_service, manager
+):
+    await create_alert(alert_service, "75000", "above")
+    gate = asyncio.Event()
+    alert_subscription = market_service.events.subscriptions[0]
+    handle_alert = alert_subscription.callback
+
+    async def busy_alerts(event):
+        await gate.wait()  # e.g. a slow database write
+        await handle_alert(event)
+
+    alert_subscription.callback = busy_alerts
+    browser_prices = []
+
+    async def browser(event):
+        await gate.wait()
+        browser_prices.append(event["data"].last_price)
+
+    market_service.subscribe(browser, name="browser_broadcast", policy="latest")
+
+    # Both workers are busy with the first price while the spike and the next price arrive.
+    await market_service.handle_ticker(make_ticker("74000"))
+    await market_service.handle_ticker(make_ticker("75001", seconds=1))
+    await market_service.handle_ticker(make_ticker("74500", seconds=2))
+    gate.set()
+    await market_service.events.join()
+
+    # The browser only needed the newest price; the alert still saw the spike.
+    assert browser_prices == [Decimal("74000"), Decimal("74500")]
+    [message] = triggered_messages(manager)
+    assert message["data"]["triggered_price"] == "75001"
 
 
 # ---------- Never fires ----------
@@ -235,7 +277,7 @@ async def test_disabled_alert_never_fires(alert_service, market_service, manager
     await alert_service.update(alert.id, AlertUpdate(is_active=False))
 
     for i in range(5):
-        await market_service.handle_ticker(make_ticker(f"{75001 + i}", seconds=i))
+        await feed(market_service, make_ticker(f"{75001 + i}", seconds=i))
 
     assert triggered_messages(manager) == []
 
@@ -246,7 +288,7 @@ async def test_ticker_while_exchange_disconnected_does_not_fire(
     await create_alert(alert_service, "75000", "above")
     market_service.client.status = "reconnecting"
 
-    await market_service.handle_ticker(make_ticker("75001"))
+    await feed(market_service, make_ticker("75001"))
 
     assert triggered_messages(manager) == []
     assert alert_service.active_alerts("BTCEUR") != []
@@ -254,7 +296,7 @@ async def test_ticker_while_exchange_disconnected_does_not_fire(
 
 async def test_stale_ticker_does_not_fire(alert_service, market_service, manager):
     ticker = make_ticker("75001")
-    await market_service.handle_ticker(ticker)
+    await feed(market_service, ticker)
     await create_alert(alert_service, "75000", "above")
     # The exchange connection has been silent for longer than STALE_AFTER_SECONDS.
     market_service.client.last_message_at -= timedelta(seconds=60)
@@ -336,7 +378,7 @@ async def test_patch_reenables_triggered_alert(client, alert_service, market_ser
     created = client.post(
         "/api/alerts", json={"symbol": "BTCEUR", "target_price": "75000", "condition": "above"}
     ).json()
-    await market_service.handle_ticker(make_ticker("75001"))
+    await feed(market_service, make_ticker("75001"))
     triggered = client.get("/api/alerts").json()[0]
     assert triggered["is_active"] is False
     assert triggered["triggered_at"] is not None
@@ -349,7 +391,7 @@ async def test_patch_reenables_triggered_alert(client, alert_service, market_ser
     assert body["triggered_at"] is None
     assert body["triggered_price"] is None
     # Back in memory, so it can fire once more.
-    await market_service.handle_ticker(make_ticker("75002", seconds=1))
+    await feed(market_service, make_ticker("75002", seconds=1))
     assert len(triggered_messages(manager)) == 2
 
 

@@ -44,3 +44,16 @@ def test_empty_symbol_list_raises_error():
 def test_unsupported_rolling_window_raises_error():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, rolling_windows=["1d"])
+
+
+def test_event_queue_sizes_default_and_come_from_env(monkeypatch):
+    assert Settings(_env_file=None).event_queue_size_latest == 100
+    monkeypatch.setenv("EVENT_QUEUE_SIZE_KEEP_ALL", "50")
+    assert Settings(_env_file=None).event_queue_size_keep_all == 50
+
+
+@pytest.mark.parametrize("field", ["event_queue_size_latest", "event_queue_size_keep_all"])
+@pytest.mark.parametrize("size", [0, -1])
+def test_event_queue_size_must_be_positive(field, size):
+    with pytest.raises(ValidationError, match="event queue sizes must be greater than 0"):
+        Settings(_env_file=None, **{field: size})

@@ -6,8 +6,6 @@ import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import pytest
-
 from app.config import Settings
 from app.schemas.market import MarketTicker
 from app.services.market_data_service import MarketDataService
@@ -25,7 +23,6 @@ def make_ticker(price: str, seconds: int) -> MarketTicker:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="rešava se u delu 2")
 async def test_slow_subscriber_does_not_delay_browser():
     service = MarketDataService(Settings(_env_file=None))  # never started
     received_at: list[float] = []
@@ -68,6 +65,7 @@ async def test_subscriber_timings_are_logged_and_reset(caplog):
     service.subscribe(broken, name="broken")
     await service.handle_ticker(make_ticker("72000", 0))
     await service.handle_ticker(make_ticker("72001", 1))
+    await service.events.join()
 
     with caplog.at_level(logging.INFO, logger="app.services.market_data_service"):
         service.log_subscriber_timings(60)
@@ -77,7 +75,7 @@ async def test_subscriber_timings_are_logged_and_reset(caplog):
     assert lines[0].startswith("Subscriber fast: 2 call(s) in the last 60 s")
     assert lines[1].startswith("Subscriber slow: 2 call(s)")
     assert lines[2].startswith("Subscriber broken: 2 call(s)")
-    slow_max_ms = float(lines[1].split("max ")[1].removesuffix(" ms"))
+    slow_max_ms = float(lines[1].split("max ")[1].split(" ms")[0])
     assert slow_max_ms >= 20
 
     caplog.clear()

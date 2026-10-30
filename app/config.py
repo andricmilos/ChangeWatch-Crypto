@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     orderbook_levels: int = 10
     # A pair's order book older than this is shown as stale; Binance sends one every second.
     orderbook_stale_seconds: int = 5
+    # Per-subscriber queue sizes (see EventBus). "latest" holds one event per pair and kind,
+    # so it rarely fills; "keep_all" must absorb a burst while the database is slow.
+    event_queue_size_latest: int = 100
+    event_queue_size_keep_all: int = 1000
 
     @field_validator("supported_symbols")
     @classmethod
@@ -83,6 +87,14 @@ class Settings(BaseSettings):
         if seconds <= 0:
             raise ValueError("orderbook_stale_seconds must be greater than 0")
         return seconds
+
+    @field_validator("event_queue_size_latest", "event_queue_size_keep_all")
+    @classmethod
+    def check_event_queue_size(cls, size: int) -> int:
+        # asyncio.Queue treats 0 as unbounded, which would remove the backpressure.
+        if size <= 0:
+            raise ValueError("event queue sizes must be greater than 0")
+        return size
 
 
 @lru_cache
