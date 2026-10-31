@@ -19,6 +19,7 @@ from app.api.routes_export import router as export_router
 from app.api.routes_history import router as history_router
 from app.api.routes_market import router as market_router
 from app.api.routes_notes import router as notes_router
+from app.api.routes_pairs import pairs_router, tags_router
 from app.api.routes_status import router as status_router
 from app.api.routes_watchlist import router as watchlist_router
 from app.config import get_settings
@@ -138,6 +139,8 @@ OPENAPI_TAGS = [
     {"name": "watchlist", "description": "Pairs the user follows, stored in the database."},
     {"name": "alerts", "description": "Price alerts that fire once when a target is reached."},
     {"name": "notes", "description": "Text notes tied to a moment on a pair's chart."},
+    {"name": "tags", "description": "Colored labels the user creates and gives to pairs."},
+    {"name": "pairs", "description": "Tags and a short note per pair, shared by every visitor."},
     {"name": "export", "description": "Download candles, notes and alerts as CSV files."},
     {"name": "status", "description": "Runtime diagnostics of the server."},
 ]
@@ -158,6 +161,8 @@ app.include_router(watchlist_router)
 app.include_router(alerts_router)
 app.include_router(alerts_partials_router)
 app.include_router(notes_router)
+app.include_router(tags_router)
+app.include_router(pairs_router)
 app.include_router(export_router)
 app.include_router(websocket_router)
 

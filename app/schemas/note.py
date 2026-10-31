@@ -101,6 +101,9 @@ class NoteOut(BaseModel):
 
 class NotesConfig(BaseModel):
     write_enabled: bool = Field(
-        description="False when NOTES_WRITE_ENABLED=false: notes can be read, not changed.",
+        description=(
+            "False when NOTES_WRITE_ENABLED=false: chart notes, tags and pair notes can be "
+            "read, not changed."
+        ),
         examples=[True],
     )

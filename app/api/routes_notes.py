@@ -27,7 +27,7 @@ Manager = Annotated[ConnectionManager, Depends(get_connection_manager)]
 
 MAX_NOTES = 500
 TOO_MANY_NOTES = f"Najviše {MAX_NOTES} beleški; obriši neku pre dodavanja nove"
-WRITE_DISABLED = "Izmena beleški je isključena na ovom serveru"
+WRITE_DISABLED = "Izmena beleški i oznaka je isključena na ovom serveru"
 NOTE_NOT_FOUND = error_response("No note with this id.", "Beleška ne postoji")
 WRITE_FORBIDDEN = error_response("NOTES_WRITE_ENABLED=false on this server.", WRITE_DISABLED)
 
@@ -90,8 +90,11 @@ async def list_notes(
 @router.get(
     "/config",
     response_model=NotesConfig,
-    summary="Whether notes can be changed",
-    description="Lets the UI hide the add, edit and delete buttons on a read-only server.",
+    summary="Whether notes and tags can be changed",
+    description=(
+        "Lets the UI hide the add, edit and delete buttons on a read-only server. "
+        "NOTES_WRITE_ENABLED also covers tags and pair notes (/api/tags, /api/pairs)."
+    ),
 )
 async def notes_config(service: MarketService) -> NotesConfig:
     return NotesConfig(write_enabled=service.settings.notes_write_enabled)

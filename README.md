@@ -94,6 +94,10 @@ most once a minute per queue.
   editing and deleting them returns 403. `GET /api/notes/config` tells the UI which mode
   the server is in.
 - Notes are not removed by the candle cleanup (`CANDLE_RETENTION_DAYS`).
+- Pair tags and pair notes (`/api/tags`, `/api/pairs`) are shared by every visitor too:
+  anyone can create, rename or delete a tag, change which tags a pair has, or edit its note.
+  At most 20 tags in total and 5 per pair; a pair note is at most 500 characters.
+  `NOTES_WRITE_ENABLED=false` makes them read-only as well.
 
 ## Running locally
 

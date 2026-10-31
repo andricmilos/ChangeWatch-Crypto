@@ -2,6 +2,7 @@
 from app.models.alert import PriceAlert
 from app.models.candle import Candle
 from app.models.note import Note
+from app.models.tag import PairNote, PairTag, Tag
 from app.models.watchlist import WatchlistItem
 
-__all__ = ["Candle", "Note", "PriceAlert", "WatchlistItem"]
+__all__ = ["Candle", "Note", "PairNote", "PairTag", "PriceAlert", "Tag", "WatchlistItem"]

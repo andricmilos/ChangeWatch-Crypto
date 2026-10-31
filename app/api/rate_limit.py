@@ -56,7 +56,7 @@ class RateLimiter:
             del self._requests[ip]
 
 
-# One shared budget for every POST, PATCH and DELETE route (SPEC 16.10).
+# One shared budget for every POST, PUT, PATCH and DELETE route (SPEC 16.10).
 write_limiter = RateLimiter(max_requests=30, window_seconds=60)
 # Routes that call Binance REST on behalf of the browser; keeps one client from spending
 # the server's Binance request weight.
