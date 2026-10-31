@@ -45,6 +45,20 @@
         <input id="search" class="search" type="search" placeholder="Pretraži parove (/)"
                autocomplete="off" aria-label="Pretraga parova">
       </div>
+      <div class="tag-toolbar">
+        <div id="tag-filter" class="tag-filter" hidden>
+          Oznaka: <span id="tag-filter-name" class="tag-chip"></span>
+          <button type="button" id="tag-filter-clear" class="tag-filter-clear"
+                  aria-label="Ukloni filter po oznaci">✕</button>
+        </div>
+        <button type="button" id="tags-manage" class="note-button" aria-expanded="false"
+                aria-controls="tags-manager" hidden>Upravljaj oznakama</button>
+      </div>
+      <section id="tags-manager" class="tags-manager" aria-label="Upravljanje oznakama" hidden>
+        <p id="tags-manager-empty" class="note-muted">Još nema oznaka. Dodaj ih preko „⋯” u redu para.</p>
+        <ul id="tags-manager-list" class="tags-manager-list"></ul>
+        <p id="tags-manager-error" class="note-error" role="alert" hidden></p>
+      </section>
       <p id="loading" class="loading">Učitavanje cena…</p>
       <div class="table-wrap">
         <table class="markets">
@@ -64,6 +78,7 @@
               <th class="num col-book">Spread %</th>
               <th class="num" aria-sort="none"><button type="button" class="sort" data-sort="volume_24h">Volumen</button></th>
               <th>Status</th>
+              <th class="actions-cell"><span class="visually-hidden">Oznake i beleška</span></th>
             </tr>
           </thead>
           <tbody id="markets-body">
@@ -73,7 +88,13 @@
                 <button type="button" class="star" aria-pressed="false"
                         aria-label="Dodaj {{ pair.display_symbol }} u watchlist">☆</button>
               </td>
-              <td class="pair">{{ pair.display_symbol }}</td>
+              <td class="pair">
+                <div class="pair-cell">
+                  <span class="pair-name">{{ pair.display_symbol }}</span>
+                  <button type="button" class="pair-note-icon" hidden>🗒</button>
+                  <span class="pair-tags"></span>
+                </div>
+              </td>
               <td class="num copy-price" data-field="last_price" title="Klikni da kopiraš">—</td>
               <td class="num" data-field="price_change">—</td>
               <td class="num col-rolling" data-field="change_1h_percent">—</td>
@@ -86,11 +107,47 @@
               <td class="num col-book" data-field="spread_percent">—</td>
               <td class="num" data-field="volume_24h">—</td>
               <td data-field="status"><span class="status status-no-data">Nema podataka</span></td>
+              <td class="actions-cell">
+                <button type="button" class="row-menu" aria-haspopup="dialog" aria-expanded="false"
+                        aria-label="Oznake i beleška za {{ pair.display_symbol }}" hidden>⋯</button>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      <div id="pair-tooltip" class="pair-tooltip" role="tooltip" hidden></div>
+      <form id="pair-panel" class="pair-panel" role="dialog" aria-labelledby="pair-panel-title"
+            hidden>
+        <h3 id="pair-panel-title" class="pair-panel-title"></h3>
+        <fieldset class="pair-panel-section">
+          <legend>Oznake <span id="pair-panel-tag-count" class="note-count"></span></legend>
+          <p id="pair-panel-no-tags" class="note-muted">Još nema oznaka.</p>
+          <ul id="pair-panel-tags" class="pair-panel-tags"></ul>
+        </fieldset>
+        <fieldset class="pair-panel-section">
+          <legend>Nova oznaka</legend>
+          <div class="pair-panel-row">
+            <input id="pair-panel-new-name" type="text" maxlength="20" autocomplete="off"
+                   placeholder="Ime oznake" aria-label="Ime nove oznake">
+            <button type="button" id="pair-panel-new-add" class="note-button"
+                    aria-label="Dodaj novu oznaku">Dodaj</button>
+          </div>
+          <div id="pair-panel-new-colors" class="tag-colors" role="radiogroup"
+               aria-label="Boja nove oznake"></div>
+        </fieldset>
+        <div class="pair-panel-section">
+          <label for="pair-panel-note" class="pair-panel-label">Beleška o paru</label>
+          <textarea id="pair-panel-note" rows="3" aria-describedby="pair-panel-note-count"></textarea>
+          <span id="pair-panel-note-count" class="note-count" aria-live="polite">0/500</span>
+        </div>
+        <p id="pair-panel-error" class="note-error" role="alert" hidden></p>
+        <div class="pair-panel-row pair-panel-actions">
+          <button type="submit" class="note-button" aria-label="Sačuvaj oznake i belešku">Sačuvaj</button>
+          <button type="button" id="pair-panel-cancel" class="note-button"
+                  aria-label="Otkaži izmene">Otkaži</button>
+        </div>
+      </form>
     </section>
 
     <section class="panel panel-chart">
@@ -327,6 +384,7 @@
   <script src="/static/js/export.js"></script>
   <script src="/static/js/chart.js"></script>
   <script src="/static/js/orderbook.js"></script>
+  <script src="/static/js/pairmeta.js"></script>
   <script src="/static/js/app.js"></script>
   <!-- After app.js: it reuses formatPrice() and LOCALE from there. -->
   <script src="/static/js/converter.js"></script>

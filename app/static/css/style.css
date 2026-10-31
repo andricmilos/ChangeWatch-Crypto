@@ -797,6 +797,358 @@ h2 {
   text-align: center;
 }
 
+/* Pair tags and notes (pairmeta.js). Each palette color is a class, never an inline style;
+   text colors are light enough for at least 4.5:1 contrast on the tinted dark backgrounds. */
+
+.tag-green { --tag-fg: #7ee787; --tag-bg: rgba(46, 160, 67, 0.18); --tag-solid: #3fb950; }
+.tag-red { --tag-fg: #ffa198; --tag-bg: rgba(248, 81, 73, 0.18); --tag-solid: #f85149; }
+.tag-yellow { --tag-fg: #f2cc60; --tag-bg: rgba(210, 153, 34, 0.18); --tag-solid: #d29922; }
+.tag-blue { --tag-fg: #a5d6ff; --tag-bg: rgba(56, 139, 253, 0.18); --tag-solid: #58a6ff; }
+.tag-purple { --tag-fg: #d2a8ff; --tag-bg: rgba(163, 113, 247, 0.18); --tag-solid: #a371f7; }
+.tag-orange { --tag-fg: #ffa657; --tag-bg: rgba(219, 109, 40, 0.18); --tag-solid: #db6d28; }
+.tag-teal { --tag-fg: #76e3ea; --tag-bg: rgba(57, 197, 207, 0.16); --tag-solid: #39c5cf; }
+.tag-gray { --tag-fg: #c9d1d9; --tag-bg: rgba(139, 148, 158, 0.18); --tag-solid: #8b949e; }
+
+.pair-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* No wrapping: the table sizes this cell to its narrowest content, which would stack the
+   chips one per line. At most 3 chips and "+N" are shown, and the table scrolls sideways. */
+.pair-tags {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.pair-tags:empty {
+  display: none;
+}
+
+.tag-chip,
+.tag-more {
+  display: inline-block;
+  max-width: 14ch;
+  padding: 1px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  vertical-align: middle;
+}
+
+.tag-chip {
+  color: var(--tag-fg, var(--text));
+  background: var(--tag-bg, transparent);
+  border-color: var(--tag-solid, var(--border));
+}
+
+button.tag-chip,
+.tag-more,
+.pair-note-icon,
+.row-menu,
+.tag-filter-clear {
+  cursor: pointer;
+}
+
+button.tag-chip[aria-pressed="true"] {
+  outline: 2px solid var(--tag-solid);
+  outline-offset: 1px;
+}
+
+.tag-more {
+  color: var(--muted);
+  background: var(--bg);
+  border-color: var(--border);
+}
+
+.pair-note-icon,
+.row-menu {
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1;
+}
+
+.pair-note-icon {
+  font-size: 13px;
+}
+
+.row-menu {
+  font-size: 18px;
+}
+
+.row-menu:hover,
+.row-menu[aria-expanded="true"] {
+  color: var(--text);
+}
+
+.markets .actions-cell {
+  width: 1%;
+  padding-left: 0;
+  text-align: right;
+}
+
+.meta-readonly .actions-cell,
+.pair-note-icon[hidden],
+.row-menu[hidden],
+.tag-filter[hidden],
+.tags-manager[hidden],
+.pair-tooltip[hidden],
+.pair-panel[hidden] {
+  display: none;
+}
+
+.tag-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tag-toolbar:has(> :not([hidden])) {
+  margin-bottom: 12px;
+}
+
+.tag-toolbar > .note-button {
+  margin-left: auto;
+}
+
+.tag-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--muted);
+}
+
+.tag-filter .tag-chip {
+  max-width: 20ch;
+}
+
+.tag-filter-clear {
+  padding: 0 6px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+}
+
+.panel-markets {
+  position: relative;
+}
+
+.pair-tooltip,
+.pair-panel {
+  position: absolute;
+  z-index: 5;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+}
+
+.pair-tooltip {
+  max-width: min(320px, calc(100% - 16px));
+  padding: 8px 10px;
+  pointer-events: none;
+}
+
+.pair-tooltip.is-pinned {
+  pointer-events: auto;
+}
+
+.pair-tooltip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pair-tooltip-note {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pair-tooltip-time {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.pair-panel {
+  width: 340px;
+  max-width: calc(100% - 16px);
+  padding: 12px;
+}
+
+.pair-panel-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+}
+
+.pair-panel-section {
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+}
+
+.pair-panel-section legend,
+.pair-panel-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.pair-panel-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pair-panel-tags label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.pair-panel-tags input:disabled + .tag-chip {
+  opacity: 0.45;
+}
+
+.note-count.is-full {
+  color: var(--yellow);
+}
+
+.pair-panel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pair-panel-actions {
+  justify-content: flex-end;
+}
+
+#pair-panel-new-name,
+#pair-panel-note,
+.tags-manager-name {
+  padding: 5px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+#pair-panel-new-name {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+#pair-panel-note {
+  display: block;
+  width: 100%;
+  resize: vertical;
+}
+
+#pair-panel-note-count {
+  display: block;
+  text-align: right;
+}
+
+.tag-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.tag-swatch {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--tag-solid);
+  border: 2px solid var(--panel);
+  outline: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.tag-swatch:checked {
+  outline: 2px solid var(--text);
+}
+
+.tag-swatch:focus-visible {
+  outline: 2px solid #58a6ff;
+  outline-offset: 2px;
+}
+
+.tags-manager {
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tags-manager-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tags-manager-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tags-manager-item .tag-colors {
+  margin-top: 0;
+}
+
+.tags-manager-name {
+  width: 16ch;
+}
+
+.tags-manager-count {
+  min-width: 7ch;
+  font-size: 12px;
+}
+
+.tags-manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.tags-manager-question {
+  color: var(--yellow);
+}
+
 /* Narrow screens */
 
 @media (max-width: 900px) {
@@ -823,6 +1175,29 @@ h2 {
   .markets .col-rolling,
   .markets .col-book {
     display: none;
+  }
+
+  /* Tags go under the pair name, and the "⋯" panel becomes a full-width sheet. A grid keeps
+     the note icon next to the name; a wrapping flex row would push it onto its own line. */
+  .pair-cell {
+    display: grid;
+    grid-template-columns: auto auto;
+    justify-content: start;
+    gap: 4px 6px;
+  }
+
+  .pair-tags {
+    grid-column: 1 / -1;
+  }
+
+  .pair-panel {
+    position: fixed;
+    inset: auto 0 0 0;
+    width: auto;
+    max-width: none;
+    max-height: 85vh;
+    overflow-y: auto;
+    border-radius: 12px 12px 0 0;
   }
 }
 

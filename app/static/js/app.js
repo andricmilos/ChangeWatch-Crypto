@@ -309,8 +309,8 @@ function selectPair(symbol) {
   if (!row) return;
   state.selectedSymbol = symbol;
   for (const other of rows.values()) other.classList.toggle("is-selected", other === row);
-  chartPanel.select(symbol, row.querySelector(".pair").textContent);
-  orderBookPanel.select(symbol, row.querySelector(".pair").textContent);
+  chartPanel.select(symbol, displaySymbol(symbol));
+  orderBookPanel.select(symbol, displaySymbol(symbol));
   renderChartStale();
 }
 
@@ -332,7 +332,8 @@ function setExchangeStatus(status, priceSource = "ws") {
 // ---------- Watchlist ----------
 
 function displaySymbol(symbol) {
-  return rows.get(symbol).querySelector(".pair").textContent;
+  // .pair-name, not .pair: the pair cell also holds the tag chips.
+  return rows.get(symbol).querySelector(".pair-name").textContent;
 }
 
 function watchlistItem(symbol) {
@@ -516,6 +517,10 @@ function handleMessage(message) {
     case "alert_triggered":
       handleAlertTriggered(message.data);
       break;
+    case "tags_updated":
+    case "pair_meta_updated":
+      pairMetaPanel.handleMessage(message);
+      break;
     case "orderbook":
       orderBookPanel.handleOrderBook(message.data);
       break;
@@ -539,6 +544,7 @@ function connect() {
     orderBookPanel.connected((payload) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
     });
+    pairMetaPanel.connected();
   });
 
   socket.addEventListener("message", (event) => {
@@ -695,7 +701,11 @@ function applyFilter() {
   const onlyWatchlist = elements.onlyWatchlist.checked;
   for (const [symbol, row] of rows) {
     const matchesQuery = query === "" || row.dataset.search.toLowerCase().includes(query);
-    row.hidden = !matchesQuery || (onlyWatchlist && !state.watchlist.has(symbol));
+    // Search, "Samo watchlist" and the tag filter must all hold.
+    row.hidden =
+      !matchesQuery ||
+      (onlyWatchlist && !state.watchlist.has(symbol)) ||
+      !pairMetaPanel.matches(symbol);
   }
 }
 
@@ -755,5 +765,6 @@ const firstSymbol = rows.keys().next().value;
 if (firstSymbol !== undefined) selectPair(firstSymbol);
 loadSort();
 renderSortHeaders();
+pairMetaPanel.init({ rows, displaySymbol, onFilterChange: applyFilter });
 loadWatchlist();
 connect();

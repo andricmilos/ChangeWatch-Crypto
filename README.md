@@ -49,6 +49,23 @@ the connection to the server is down. Clicking a price puts it into the new-aler
 target price for that pair; nothing is saved until the form is submitted. The "Knjiga naloga"
 toggle switches the panel and its subscription off; the choice is remembered in the browser.
 
+## Pair tags and notes
+
+![Markets table with tag chips and a pair note](docs/images/pair-tags.png)
+
+Pairs in the markets table can carry colored tags ("Dugoročno", "Rizično") and a short note:
+
+- Up to 3 tag chips are shown next to the pair name, the rest as "+2"; hovering it lists all
+  of them. A 🗒 icon marks a pair with a note; hovering it (tapping on a phone) shows the text.
+- Clicking a chip shows only pairs with that tag ("Oznaka: Dugoročno ✕" above the table). The
+  tag filter combines with the search and "Samo watchlist", and is remembered in the browser;
+  it is dropped when the tag is deleted.
+- "⋯" at the end of a row edits that pair: check up to 5 tags, create a new tag with one of
+  8 colors, and write a note of up to 500 characters. "Upravljaj oznakama" renames, recolors
+  and deletes tags; deleting asks first and says how many pairs use the tag.
+- Changes made in one browser appear in every open dashboard right away. On a read-only
+  server (`NOTES_WRITE_ENABLED=false`) the edit controls are hidden.
+
 ## Event processing architecture
 
 ```text

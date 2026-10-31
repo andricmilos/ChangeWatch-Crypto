@@ -81,6 +81,7 @@ def test_dashboard_has_calculator_panel(client):
         ("/static/js/chart.js", "javascript"),
         ("/static/js/converter.js", "javascript"),
         ("/static/js/orderbook.js", "javascript"),
+        ("/static/js/pairmeta.js", "javascript"),
         ("/static/css/style.css", "text/css"),
     ],
 )
@@ -143,3 +144,23 @@ def test_orderbook_script_loads_before_app_script(client):
     orderbook_script = html.index('<script src="/static/js/orderbook.js"></script>')
     app_script = html.index('<script src="/static/js/app.js"></script>')
     assert orderbook_script < app_script
+
+
+def test_dashboard_has_pair_tag_controls(client):
+    html = client.get("/").text
+    body = html[html.index('id="markets-body"') : html.index("</tbody>")]
+
+    assert body.count('class="pair-name"') == body.count("<tr ")
+    assert body.count('class="row-menu"') == body.count("<tr ")
+    assert 'aria-label="Oznake i beleška za BTC/EUR"' in body
+    for element_id in ["tag-filter", "tags-manage", "tags-manager", "pair-panel", "pair-tooltip"]:
+        assert f'id="{element_id}"' in html
+    assert 'id="pair-panel-note-count" class="note-count" aria-live="polite">0/500<' in html
+
+
+def test_pairmeta_script_loads_before_app_script(client):
+    html = client.get("/").text
+
+    pairmeta_script = html.index('<script src="/static/js/pairmeta.js"></script>')
+    app_script = html.index('<script src="/static/js/app.js"></script>')
+    assert pairmeta_script < app_script
