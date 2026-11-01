@@ -201,7 +201,7 @@
         <p id="note-form-error" class="note-error" role="alert" hidden></p>
       </form>
       <ul id="chart-notes" class="chart-notes" aria-label="Beleške i alerti za sveću" hidden></ul>
-      <p class="chart-note">Vreme je prikazano u UTC.</p>
+      <p class="chart-note">Vreme je prikazano u UTC. <span class="shortcuts-hint">? – prečice</span></p>
       <div class="notes-panel">
         <div class="export-header">
           <h3>Beleške za <span id="notes-panel-symbol">—</span></h3>
@@ -370,6 +370,19 @@
   </main>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <dialog id="shortcuts" class="shortcuts" aria-labelledby="shortcuts-title">
+    <div class="shortcuts-body">
+      <h2 id="shortcuts-title">Prečice</h2>
+      <dl class="shortcuts-list">
+        <dt><kbd>/</kbd></dt><dd>Pretraga parova</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Briše pretragu, izlazi iz dodavanja beleške, zatvara prozor</dd>
+        <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></dt><dd>Interval grafikona: 1m, 5m, 15m, 1h</dd>
+        <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Prethodni / sledeći par iz tabele</dd>
+        <dt><kbd>?</kbd></dt><dd>Ovaj spisak prečica</dd>
+      </dl>
+    </div>
+  </dialog>
 
   <footer class="footer">
     <p>

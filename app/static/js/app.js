@@ -48,6 +48,7 @@ const elements = {
   marketsBody: document.getElementById("markets-body"),
   tableWrap: document.querySelector(".table-wrap"),
   sortButtons: document.querySelectorAll(".markets .sort"),
+  shortcuts: document.getElementById("shortcuts"),
 };
 
 const state = {
@@ -765,12 +766,58 @@ function isTypingTarget(target) {
   return target instanceof Element && target.matches("input, textarea, select");
 }
 
-function handleSearchShortcut(event) {
-  if (event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (isTypingTarget(event.target)) return;
-  // Without preventDefault the "/" would be typed into the field it just focused.
-  event.preventDefault();
-  elements.search.focus();
+// ---------- Keyboard shortcuts ----------
+
+const INTERVAL_KEYS = { 1: "1m", 2: "5m", 3: "15m", 4: "1h" };
+// Panels and forms that own the keyboard while they are open.
+const BLOCKING_PANEL_SELECTOR =
+  "#pair-panel:not([hidden]), #tags-manager:not([hidden]), #note-form:not([hidden]), " +
+  "#note-pick-hint:not([hidden]), #pair-tooltip.is-pinned:not([hidden])";
+
+function shortcutsAllowed(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return false;
+  if (isTypingTarget(event.target) || elements.shortcuts.open) return false;
+  return document.querySelector(BLOCKING_PANEL_SELECTOR) === null;
+}
+
+function visibleSymbols() {
+  // DOM order follows the active sort; hidden rows are filtered out.
+  return [...elements.marketsBody.querySelectorAll("tr[data-symbol]")]
+    .filter((row) => !row.hidden)
+    .map((row) => row.dataset.symbol);
+}
+
+function selectAdjacentPair(step) {
+  const symbols = visibleSymbols();
+  if (symbols.length === 0) return;
+  const index = symbols.indexOf(state.selectedSymbol);
+  // A selected pair hidden by the filters starts the walk from the matching end.
+  const next = index === -1 ? (step > 0 ? 0 : symbols.length - 1) : index + step;
+  if (next < 0 || next >= symbols.length) return;
+  selectPair(symbols[next]);
+}
+
+function handleShortcut(event) {
+  if (!shortcutsAllowed(event)) return;
+  if (event.key === "/") {
+    // Without preventDefault the "/" would be typed into the field it just focused.
+    event.preventDefault();
+    elements.search.focus();
+  } else if (event.key === "?") {
+    event.preventDefault();
+    elements.shortcuts.showModal();
+  } else if (Object.hasOwn(INTERVAL_KEYS, event.key)) {
+    chartPanel.selectInterval(INTERVAL_KEYS[event.key]);
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    // The page would otherwise scroll sideways as well.
+    event.preventDefault();
+    selectAdjacentPair(event.key === "ArrowRight" ? 1 : -1);
+  }
+}
+
+function closeShortcutsOnBackdrop(event) {
+  // The dialog's content sits in an inner element, so only the backdrop targets the dialog.
+  if (event.target === elements.shortcuts) elements.shortcuts.close();
 }
 
 function handleSearchEscape(event) {
@@ -783,7 +830,8 @@ function handleSearchEscape(event) {
 
 elements.search.addEventListener("input", applyFilter);
 elements.search.addEventListener("keydown", handleSearchEscape);
-document.addEventListener("keydown", handleSearchShortcut);
+document.addEventListener("keydown", handleShortcut);
+elements.shortcuts.addEventListener("click", closeShortcutsOnBackdrop);
 for (const button of elements.sortButtons) {
   button.addEventListener("click", () => changeSort(button.dataset.sort));
 }

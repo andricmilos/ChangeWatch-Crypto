@@ -1504,3 +1504,50 @@ button.tag-chip[aria-pressed="true"] {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Keyboard shortcuts */
+
+.shortcuts {
+  padding: 0;
+  max-width: calc(100% - 32px);
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.6);
+}
+
+.shortcuts::backdrop {
+  background: rgba(1, 4, 9, 0.5);
+}
+
+/* The padding sits on an inner element, so a click on the dialog itself is a click outside. */
+.shortcuts-body {
+  padding: 16px 20px;
+}
+
+.shortcuts h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.shortcuts-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.shortcuts-list dd {
+  margin: 0;
+}
+
+.shortcuts kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 6px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}

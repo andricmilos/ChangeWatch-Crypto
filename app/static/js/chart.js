@@ -120,6 +120,7 @@ const chartPanel = (() => {
       handleNoteMessage() {},
       handleAlertTriggered() {},
       setStale() {},
+      selectInterval() {},
     };
   }
 
@@ -937,5 +938,5 @@ const chartPanel = (() => {
   loadMarkerToggles();
   loadNotesConfig();
 
-  return { select, handleKline, handleNoteMessage, handleAlertTriggered, setStale };
+  return { select, handleKline, handleNoteMessage, handleAlertTriggered, setStale, selectInterval };
 })();
