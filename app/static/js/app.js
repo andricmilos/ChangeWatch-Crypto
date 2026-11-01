@@ -13,6 +13,7 @@ const HIGH_SPREAD_TOOLTIP =
 // Live prices would otherwise reshuffle the sorted table every second.
 const RESORT_MIN_INTERVAL_MS = 5000;
 const COPY_LABEL_MS = 1500;
+const COPY_HINT = "Klikni da kopiraš";
 const SORT_STORAGE_KEY = "changewatch.sort";
 const SORT_KEYS = [
   "pair",
@@ -132,6 +133,38 @@ function formatTime(ms) {
   return new Date(ms).toLocaleTimeString(LOCALE, { hour12: false });
 }
 
+const relativeTimeFormat = createRelativeTimeFormat();
+
+function createRelativeTimeFormat() {
+  try {
+    return new Intl.RelativeTimeFormat("sr-Latn", { style: "narrow", numeric: "always" });
+  } catch {
+    return null;
+  }
+}
+
+const RELATIVE_FALLBACK_UNITS = { second: "s", minute: "min", hour: "h", day: "d" };
+
+function formatRelative(elapsedMs) {
+  // A browser clock slightly behind the server would otherwise show "in 2 s".
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  let value = seconds;
+  let unit = "second";
+  if (seconds >= 86400) {
+    value = Math.floor(seconds / 86400);
+    unit = "day";
+  } else if (seconds >= 3600) {
+    value = Math.floor(seconds / 3600);
+    unit = "hour";
+  } else if (seconds >= 60) {
+    value = Math.floor(seconds / 60);
+    unit = "minute";
+  }
+  // -value keeps 0 in the past ("pre 0 s"), not the future ("za 0 s").
+  if (relativeTimeFormat) return relativeTimeFormat.format(-value, unit);
+  return `pre ${value} ${RELATIVE_FALLBACK_UNITS[unit]}`;
+}
+
 // ---------- Rendering ----------
 
 function setCell(container, field, text, signValue) {
@@ -198,6 +231,7 @@ function renderRow(market) {
 
   renderWatchlistPrice(market.symbol);
   renderStatus(market.symbol);
+  renderPriceAge(market.symbol);
   updateLastUpdate(market.updated_at);
   state.sortDirty = true;
 }
@@ -272,7 +306,25 @@ function updateLastUpdate(updatedAt) {
   const ms = Date.parse(updatedAt);
   if (Number.isNaN(ms) || (state.lastUpdateMs !== null && ms <= state.lastUpdateMs)) return;
   state.lastUpdateMs = ms;
-  elements.lastUpdate.textContent = formatTime(ms);
+  renderLastUpdate();
+}
+
+function renderLastUpdate() {
+  const ms = state.lastUpdateMs;
+  const old = ms !== null && Date.now() - ms > STALE_AFTER_MS;
+  elements.lastUpdate.textContent =
+    ms === null ? MISSING : `${formatTime(ms)} (${formatRelative(Date.now() - ms)})`;
+  elements.lastUpdate.classList.toggle("is-old", old);
+}
+
+function renderPriceAge(symbol) {
+  const cell = rows.get(symbol).querySelector('[data-field="last_price"]');
+  const updatedAt = state.markets.get(symbol)?.market.updated_at;
+  const ms = isMissing(updatedAt) ? NaN : Date.parse(updatedAt);
+  const age = Number.isNaN(ms)
+    ? `Ažurirano ${MISSING}`
+    : `Ažurirano ${formatRelative(Date.now() - ms)} (${formatTime(ms)})`;
+  cell.title = `${age}\n${COPY_HINT}`;
 }
 
 function renderIndicator() {
@@ -757,7 +809,11 @@ for (const [symbol, row] of rows) {
   });
 }
 setInterval(() => {
-  for (const symbol of rows.keys()) renderStatus(symbol);
+  for (const symbol of rows.keys()) {
+    renderStatus(symbol);
+    renderPriceAge(symbol);
+  }
+  renderLastUpdate();
   renderChartStale();
   maybeResort();
 }, 1000);
