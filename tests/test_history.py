@@ -385,6 +385,23 @@ def test_binance_unavailable_returns_503(market_service):
     assert response.json() == {"detail": "Berza trenutno nije dostupna"}
 
 
+def test_region_block_returns_503(market_service):
+    def blocked(request):
+        return httpx.Response(451, text="Service unavailable from a restricted location")
+
+    rest_client = BinanceRestClient(SETTINGS, transport=httpx.MockTransport(blocked))
+    history = HistoryService(rest_client, clock=lambda: NOW)
+    app.dependency_overrides[get_market_service] = lambda: market_service
+    app.dependency_overrides[get_history_service] = lambda: history
+    try:
+        response = TestClient(app).get("/api/history/value?amount=100&period=7d")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Berza trenutno nije dostupna"}
+
+
 def test_rate_limit_returns_429(client):
     for _ in range(20):
         assert client.get("/api/history/value?amount=100&period=7d").status_code == 200

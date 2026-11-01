@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     orderbook_service = OrderBookService(get_settings())
     service = MarketDataService(get_settings(), stats, on_depth=orderbook_service.handle_snapshot)
     manager = ConnectionManager(stats)
-    rest_client = BinanceRestClient(get_settings())
+    rest_client = BinanceRestClient(get_settings(), stats=stats)
     candle_service = CandleService(rest_client, SessionLocal, stats=stats)
     alert_service = AlertService(SessionLocal, service, manager, stats)
     await alert_service.load_active()

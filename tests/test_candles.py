@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -17,8 +18,13 @@ from app.main import app
 from app.models import Candle
 from app.schemas.market import KlineUpdate
 from app.services.candle_service import CandleService
-from app.services.exchange_client import BinanceRestClient, ExchangeUnavailableError
+from app.services.exchange_client import (
+    BinanceRestClient,
+    ExchangeRegionBlockedError,
+    ExchangeUnavailableError,
+)
 from app.services.market_data_service import MarketDataService
+from app.services.runtime_stats import RuntimeStats
 
 SETTINGS = Settings(_env_file=None)
 MINUTE_MS = 60_000
@@ -140,7 +146,6 @@ async def test_same_candle_cannot_be_stored_twice(session):
         await session.commit()
 
 
-
 async def test_rest_klines_are_parsed_into_decimals():
     fake = FakeBinance()
     client = make_rest_client(fake)
@@ -205,6 +210,37 @@ async def test_rate_limit_pauses_further_requests(status_code):
 
     # The second call never reached Binance.
     assert len(fake.requests) == 1
+    await client.close()
+
+
+async def test_region_block_raises_dedicated_error_and_logs_once(caplog):
+    stats = RuntimeStats()
+    client = BinanceRestClient(
+        SETTINGS, transport=httpx.MockTransport(FakeBinance(status_code=451)), stats=stats
+    )
+
+    with caplog.at_level(logging.ERROR, logger="app.services.exchange_client"):
+        for _ in range(3):
+            with pytest.raises(ExchangeRegionBlockedError):
+                await client.get_klines("BTCEUR", "1m", 3)
+
+    region_logs = [r for r in caplog.records if "HTTP 451" in r.getMessage()]
+    assert len(region_logs) == 1
+    assert stats.region_blocked is True
+    await client.close()
+
+
+async def test_successful_answer_clears_region_block():
+    fake = FakeBinance(status_code=451)
+    stats = RuntimeStats()
+    client = BinanceRestClient(SETTINGS, transport=httpx.MockTransport(fake), stats=stats)
+
+    with pytest.raises(ExchangeRegionBlockedError):
+        await client.get_klines("BTCEUR", "1m", 3)
+    fake.status_code = 200
+    await client.get_klines("BTCEUR", "1m", 3)
+
+    assert stats.region_blocked is False
     await client.close()
 
 

@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 import httpx
 from websockets.asyncio.client import connect
+from websockets.exceptions import InvalidStatus
 
 from app.config import Settings, get_settings
 from app.schemas.market import KlineUpdate, MarketTicker, RollingChange
@@ -495,6 +496,44 @@ class ExchangeUnavailableError(Exception):
     """Binance REST could not give a usable answer (network error, 5xx or rate limit)."""
 
 
+class ExchangeRegionBlockedError(ExchangeUnavailableError):
+    """Binance refuses requests from this server's region (HTTP 451)."""
+
+
+REGION_BLOCKED_STATUS = 451
+REGION_BLOCKED_MESSAGE = (
+    "Binance blokira pristup iz regiona ovog servera (HTTP 451). "
+    "Pokreni server u drugom regionu (npr. EU)."
+)
+REGION_BLOCKED_LOG_INTERVAL_SECONDS = 600.0
+
+
+class RegionBlockedLog:
+    """Logs REGION_BLOCKED_MESSAGE at most once per interval.
+
+    A blocked region stays blocked, so repeating the error on every retry only floods the log.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self.clock = clock
+        self._logged_at: float | None = None
+
+    def emit(self) -> None:
+        now = self.clock()
+        if (
+            self._logged_at is not None
+            and now - self._logged_at < REGION_BLOCKED_LOG_INTERVAL_SECONDS
+        ):
+            return
+        self._logged_at = now
+        logger.error(REGION_BLOCKED_MESSAGE)
+
+
+def is_region_blocked(exc: Exception) -> bool:
+    """True when the WebSocket handshake was rejected with HTTP 451."""
+    return isinstance(exc, InvalidStatus) and exc.response.status_code == REGION_BLOCKED_STATUS
+
+
 def parse_rest_kline(row: Any, symbol: str, interval: str, is_closed: bool) -> KlineUpdate | None:
     """Convert one /api/v3/klines row; the first seven fields are t, o, h, l, c, v, T."""
     if not isinstance(row, list) or len(row) < 7:
@@ -536,12 +575,19 @@ class BinanceRestClient:
     RATE_LIMIT_STATUSES = (418, 429)
     DEFAULT_RATE_LIMIT_PAUSE = 60.0
 
-    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(
+        self,
+        settings: Settings,
+        transport: httpx.AsyncBaseTransport | None = None,
+        stats: RuntimeStats | None = None,
+    ):
         # Tests pass an httpx.MockTransport, so no request ever leaves the machine.
         self.http = httpx.AsyncClient(
             base_url=settings.binance_rest_url, timeout=10, transport=transport
         )
+        self.stats = stats or RuntimeStats()
         self._paused_until = 0.0
+        self._region_blocked_log = RegionBlockedLog()
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -604,6 +650,10 @@ class BinanceRestClient:
                 pause,
             )
             raise ExchangeUnavailableError(f"Binance rate limit (HTTP {response.status_code})")
+        if response.status_code == REGION_BLOCKED_STATUS:
+            self.stats.record_region_blocked(True)
+            self._region_blocked_log.emit()
+            raise ExchangeRegionBlockedError("Binance blocks this server's region (HTTP 451)")
         if response.status_code >= 500:
             raise ExchangeUnavailableError(f"Binance REST returned HTTP {response.status_code}")
         if response.status_code != 200:
@@ -613,6 +663,7 @@ class BinanceRestClient:
                 response.text[:200],
             )
             raise ExchangeUnavailableError(f"Binance REST returned HTTP {response.status_code}")
+        self.stats.record_region_blocked(False)
 
         try:
             rows = response.json()
@@ -689,6 +740,7 @@ class BinanceStreamClient:
         self._stop_event = asyncio.Event()
         self._connection: Any = None
         self._last_server_shutdown_at: float | None = None
+        self._region_blocked_log = RegionBlockedLog(clock)
 
     async def run(self) -> None:
         self._stop_event.clear()
@@ -697,9 +749,11 @@ class BinanceStreamClient:
         while not self._stop_event.is_set():
             reason = "connection closed"
             server_shutdown = False
+            region_blocked = False
             try:
                 async with self.connect_factory(self.url) as connection:
                     self._connection = connection
+                    self.stats.record_region_blocked(False)
                     await self._set_status("connected")
                     logger.info("Connected to Binance stream after %d failed attempt(s)", attempt)
                     attempt = 0
@@ -714,6 +768,7 @@ class BinanceStreamClient:
                 if self._stop_event.is_set():
                     break
                 reason = f"{type(exc).__name__}: {exc}"
+                region_blocked = is_region_blocked(exc)
             finally:
                 self._connection = None
 
@@ -729,17 +784,28 @@ class BinanceStreamClient:
                 reason = "repeated server shutdown"
             self.stats.record_disconnect(reason)
             await self._set_status("reconnecting")
-            delay = compute_backoff(attempt, self.reconnect_initial_delay, self.reconnect_max_delay)
-            # Jitter keeps many clients from reconnecting at exactly the same moment.
-            delay += random.uniform(0, delay * 0.1)
+            if region_blocked:
+                # Retrying sooner cannot lift a region block, so wait the longest delay.
+                delay = self.reconnect_max_delay
+            else:
+                delay = compute_backoff(
+                    attempt, self.reconnect_initial_delay, self.reconnect_max_delay
+                )
+                # Jitter keeps many clients from reconnecting at exactly the same moment.
+                delay += random.uniform(0, delay * 0.1)
             attempt += 1
             self.stats.record_reconnect_attempt()
-            logger.warning(
-                "Binance stream connection lost (%s); reconnect attempt %d in %.1f s",
-                reason,
-                attempt,
-                delay,
-            )
+            if region_blocked:
+                # The throttled error replaces the per-attempt warning.
+                self.stats.record_region_blocked(True)
+                self._region_blocked_log.emit()
+            else:
+                logger.warning(
+                    "Binance stream connection lost (%s); reconnect attempt %d in %.1f s",
+                    reason,
+                    attempt,
+                    delay,
+                )
             await self._sleep_unless_stopped(delay)
 
         await self._set_status("stopped")

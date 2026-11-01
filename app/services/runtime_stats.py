@@ -67,6 +67,7 @@ class RuntimeStats:
         self.server_shutdowns = 0
         self.last_disconnect_at: datetime | None = None
         self.last_disconnect_reason: str | None = None
+        self.region_blocked = False
 
         self.messages_total = 0
         self.messages_rejected = 0
@@ -105,6 +106,10 @@ class RuntimeStats:
 
     def record_server_shutdown(self) -> None:
         self.server_shutdowns += 1
+
+    def record_region_blocked(self, blocked: bool) -> None:
+        # The latest Binance answer (WebSocket or REST) decides; a later success clears it.
+        self.region_blocked = blocked
 
     # ---------- Exchange messages ----------
 
@@ -176,6 +181,7 @@ class RuntimeStats:
                 "server_shutdowns": self.server_shutdowns,
                 "last_disconnect_at": self.last_disconnect_at,
                 "last_disconnect_reason": self.last_disconnect_reason,
+                "region_blocked": self.region_blocked,
             },
             "messages": {
                 "total": self.messages_total,

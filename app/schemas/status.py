@@ -23,6 +23,10 @@ class ExchangeStatus(BaseModel):
     last_disconnect_reason: str | None = Field(
         description="Why it dropped (at most 200 characters).", examples=["ConnectionClosedError"]
     )
+    region_blocked: bool = Field(
+        description="Binance refused this server's region (HTTP 451) on the last attempt.",
+        examples=[False],
+    )
 
 
 class MessageCounts(BaseModel):

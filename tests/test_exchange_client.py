@@ -5,6 +5,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from websockets.datastructures import Headers
+from websockets.exceptions import InvalidStatus
+from websockets.http11 import Response
 
 from app.services.exchange_client import (
     BinanceStreamClient,
@@ -386,3 +389,94 @@ async def test_server_shutdowns_more_than_60_s_apart_both_reconnect_immediately(
     assert delays == []
     assert stats.server_shutdowns == 2
     assert stats.reconnects == 0
+
+
+def rejected_handshake(status_code):
+    return InvalidStatus(Response(status_code, "Rejected", Headers()))
+
+
+async def run_rejected_attempts(status_code, attempts, monkeypatch, max_delay=120.0):
+    """Every connect fails with `status_code`; returns the delays the client waited."""
+    now = 0.0
+    delays = []
+
+    def connect_factory(_url):
+        raise rejected_handshake(status_code)
+
+    client = make_client(
+        connect_factory,
+        reconnect_initial_delay=1.0,
+        reconnect_max_delay=max_delay,
+        clock=lambda: now,
+    )
+
+    async def fake_sleep(delay):
+        nonlocal now
+        delays.append(delay)
+        now += delay
+        if len(delays) == attempts:
+            await client.stop()
+
+    monkeypatch.setattr(client, "_sleep_unless_stopped", fake_sleep)
+    await asyncio.wait_for(client.run(), timeout=1)
+    return client, delays
+
+
+def region_logs(caplog):
+    return [
+        r for r in caplog.records if r.levelno == logging.ERROR and "HTTP 451" in r.getMessage()
+    ]
+
+
+async def test_region_block_waits_max_delay_and_logs_once(monkeypatch, caplog):
+    with caplog.at_level(logging.WARNING, logger="app.services.exchange_client"):
+        client, delays = await run_rejected_attempts(451, 5, monkeypatch)
+
+    # Five attempts over 8 minutes: always the longest delay, one error in the log.
+    assert delays == [120.0] * 5
+    assert len(region_logs(caplog)) == 1
+    assert "connection lost" not in caplog.text
+    assert client.stats.region_blocked is True
+
+
+async def test_region_block_error_repeats_after_10_minutes(monkeypatch, caplog):
+    with caplog.at_level(logging.ERROR, logger="app.services.exchange_client"):
+        await run_rejected_attempts(451, 6, monkeypatch)
+
+    # Attempts at 0, 120, ..., 600 s: logged at 0 s and again at 600 s.
+    assert len(region_logs(caplog)) == 2
+
+
+async def test_other_rejected_handshake_uses_normal_backoff(monkeypatch, caplog):
+    with caplog.at_level(logging.WARNING, logger="app.services.exchange_client"):
+        client, delays = await run_rejected_attempts(403, 3, monkeypatch)
+
+    assert [int(delay) for delay in delays] == [1, 2, 4]
+    assert region_logs(caplog) == []
+    assert "connection lost" in caplog.text
+    assert client.stats.region_blocked is False
+
+
+async def test_successful_connect_clears_region_block(monkeypatch):
+    attempts = 0
+    connection = BlockingConnection([])
+
+    def connect_factory(_url):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise rejected_handshake(451)
+        return FakeConnect(connection)
+
+    client = make_client(connect_factory)
+
+    async def fake_sleep(_delay):
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(client, "_sleep_unless_stopped", fake_sleep)
+    task = asyncio.create_task(client.run())
+    await wait_until(lambda: client.status == "connected")
+
+    assert client.stats.region_blocked is False
+    await client.stop()
+    await asyncio.wait_for(task, timeout=1)

@@ -288,6 +288,7 @@ def test_status_returns_expected_fields(client):
         "server_shutdowns": 0,
         "last_disconnect_at": None,
         "last_disconnect_reason": None,
+        "region_blocked": False,
     }
     assert body["messages"] == {"total": 0, "last_60s": 0, "rejected": 0}
     assert body["orderbook"] == {"received": 0, "rejected": 0}
