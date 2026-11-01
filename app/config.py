@@ -1,5 +1,7 @@
+import re
 from decimal import Decimal
 from functools import lru_cache
+from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -95,6 +97,31 @@ class Settings(BaseSettings):
         if size <= 0:
             raise ValueError("event queue sizes must be greater than 0")
         return size
+
+
+SECRET_FIELD_PATTERN = re.compile(r"secret|token|password|key", re.IGNORECASE)
+# The password in "scheme://user:password@host", in any setting that holds a URL.
+URL_PASSWORD_PATTERN = re.compile(r"(://[^:/@\s]+:)[^@/\s]+@")
+MASK = "***"
+
+
+def _redact(name: str, value: Any) -> Any:
+    if SECRET_FIELD_PATTERN.search(name):
+        return MASK
+    if isinstance(value, str):
+        return URL_PASSWORD_PATTERN.sub(rf"\g<1>{MASK}@", value)
+    if isinstance(value, list):
+        return [_redact("", item) for item in value]
+    return value
+
+
+def settings_summary(settings: Settings, version: str | None = None) -> str:
+    # Built from model_dump, so a newly added setting shows up without touching this code.
+    title = f"ChangeWatch Crypto {version}" if version else "ChangeWatch Crypto"
+    lines = [f"Starting {title} with settings:"]
+    for name, value in settings.model_dump(mode="json").items():
+        lines.append(f"  {name.upper()} = {_redact(name, value)}")
+    return "\n".join(lines)
 
 
 @lru_cache

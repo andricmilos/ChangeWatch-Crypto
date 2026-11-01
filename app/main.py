@@ -22,7 +22,7 @@ from app.api.routes_notes import router as notes_router
 from app.api.routes_pairs import pairs_router, tags_router
 from app.api.routes_status import router as status_router
 from app.api.routes_watchlist import router as watchlist_router
-from app.config import get_settings
+from app.config import get_settings, settings_summary
 from app.database import SessionLocal, init_db
 from app.middleware import RequestTimingMiddleware
 from app.schemas.orderbook import OrderBookSnapshot
@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info(settings_summary(get_settings(), __version__))
     await init_db()
     stats = RuntimeStats()
     orderbook_service = OrderBookService(get_settings())
