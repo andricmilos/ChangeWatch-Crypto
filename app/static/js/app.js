@@ -50,6 +50,7 @@ const elements = {
   sortButtons: document.querySelectorAll(".markets .sort"),
   shortcuts: document.getElementById("shortcuts"),
   favicon: document.getElementById("favicon"),
+  copyLink: document.getElementById("copy-link"),
 };
 
 const state = {
@@ -424,6 +425,69 @@ function selectPair(symbol) {
   chartPanel.select(symbol, displaySymbol(symbol));
   orderBookPanel.select(symbol, displaySymbol(symbol));
   renderChartStale();
+  writeChartUrl();
+}
+
+// ---------- Chart link ----------
+
+// ?pair=ETHEUR&interval=15m mirrors the chart, so the address can be shared or bookmarked.
+const URL_PAIR_PARAM = "pair";
+const URL_INTERVAL_PARAM = "interval";
+const COPY_LINK_TEXT = "Kopiraj link";
+
+// Accepts "ethEUR" and "ETH-EUR"; null unless the server lists the pair.
+function pairFromUrl(params) {
+  const value = params.get(URL_PAIR_PARAM);
+  if (value === null) return null;
+  const symbol = value.trim().toUpperCase().replace("-", "");
+  return rows.has(symbol) ? symbol : null;
+}
+
+function intervalFromUrl(params) {
+  const value = params.get(URL_INTERVAL_PARAM);
+  if (value === null) return null;
+  const interval = value.trim().toLowerCase();
+  return Object.values(INTERVAL_KEYS).includes(interval) ? interval : null;
+}
+
+// replaceState, not pushState: picking pairs must not fill the browser history. Other query
+// parameters are kept; invalid pair or interval values are overwritten with the real choice.
+function writeChartUrl() {
+  const url = new URL(window.location.href);
+  if (state.selectedSymbol === null) {
+    url.searchParams.delete(URL_PAIR_PARAM);
+  } else {
+    url.searchParams.set(URL_PAIR_PARAM, state.selectedSymbol);
+  }
+  url.searchParams.set(URL_INTERVAL_PARAM, chartPanel.getInterval());
+  history.replaceState(history.state, "", url);
+}
+
+// The URL wins over the default pair and interval; there is no saved choice to fall back on.
+function applyChartUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const interval = intervalFromUrl(params);
+  // Before selectPair, so the chart loads its history only once.
+  if (interval !== null) chartPanel.selectInterval(interval);
+  const symbol = pairFromUrl(params) ?? rows.keys().next().value;
+  if (symbol !== undefined) selectPair(symbol);
+  writeChartUrl();
+}
+
+async function copyChartLink() {
+  clearTimeout(Number(elements.copyLink.dataset.copyTimer));
+  try {
+    await navigator.clipboard.writeText(window.location.href);
+    elements.copyLink.textContent = "Link kopiran";
+  } catch (error) {
+    console.warn("Could not copy the chart link", error);
+    elements.copyLink.textContent = "Kopiranje nije uspelo";
+  }
+  elements.copyLink.dataset.copyTimer = String(
+    setTimeout(() => {
+      elements.copyLink.textContent = COPY_LINK_TEXT;
+    }, COPY_LABEL_MS),
+  );
 }
 
 function setExchangeStatus(status, priceSource = "ws") {
@@ -945,8 +1009,9 @@ setInterval(() => {
   renderChartStale();
   maybeResort();
 }, 1000);
-const firstSymbol = rows.keys().next().value;
-if (firstSymbol !== undefined) selectPair(firstSymbol);
+chartPanel.onIntervalChange(writeChartUrl);
+elements.copyLink.addEventListener("click", copyChartLink);
+applyChartUrl();
 loadSort();
 renderSortHeaders();
 pairMetaPanel.init({ rows, displaySymbol, onFilterChange: applyFilter });

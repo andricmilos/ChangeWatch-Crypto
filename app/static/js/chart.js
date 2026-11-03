@@ -105,6 +105,8 @@ const chartPanel = (() => {
     // Note whose PATCH or DELETE is in flight; its buttons are disabled meanwhile.
     pendingId: null,
   };
+  // Called with the new interval after every change (buttons and keyboard shortcuts).
+  const intervalListeners = [];
 
   function showMessage(text) {
     elements.message.textContent = text;
@@ -121,6 +123,10 @@ const chartPanel = (() => {
       handleAlertTriggered() {},
       setStale() {},
       selectInterval() {},
+      getInterval() {
+        return "1m";
+      },
+      onIntervalChange() {},
     };
   }
 
@@ -872,6 +878,15 @@ const chartPanel = (() => {
       button.setAttribute("aria-pressed", String(button.dataset.interval === interval));
     }
     reload();
+    for (const listener of intervalListeners) listener(interval);
+  }
+
+  function getInterval() {
+    return state.interval;
+  }
+
+  function onIntervalChange(listener) {
+    intervalListeners.push(listener);
   }
 
   function setChartType(chartType) {
@@ -938,5 +953,14 @@ const chartPanel = (() => {
   loadMarkerToggles();
   loadNotesConfig();
 
-  return { select, handleKline, handleNoteMessage, handleAlertTriggered, setStale, selectInterval };
+  return {
+    select,
+    handleKline,
+    handleNoteMessage,
+    handleAlertTriggered,
+    setStale,
+    selectInterval,
+    getInterval,
+    onIntervalChange,
+  };
 })();
