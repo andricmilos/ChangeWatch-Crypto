@@ -7,21 +7,24 @@ from app.api.dependencies import (
     get_candle_service,
     get_market_service,
     get_orderbook_service,
+    get_precision_service,
     normalize_symbol,
 )
 from app.schemas.error import EXCHANGE_UNAVAILABLE, UNKNOWN_SYMBOL, validation_or_error
-from app.schemas.market import CandleOut, MarketsResponse, MarketView
+from app.schemas.market import CandleOut, MarketMeta, MarketsResponse, MarketView
 from app.schemas.orderbook import OrderBookView
 from app.services.candle_service import CandleService
 from app.services.exchange_client import datetime_to_ms
 from app.services.market_data_service import MarketDataService
 from app.services.orderbook_service import OrderBookService
+from app.services.precision_service import PrecisionService
 
 router = APIRouter(prefix="/api/markets", tags=["markets"])
 
 MarketService = Annotated[MarketDataService, Depends(get_market_service)]
 Candles = Annotated[CandleService, Depends(get_candle_service)]
 OrderBooks = Annotated[OrderBookService, Depends(get_orderbook_service)]
+Precision = Annotated[PrecisionService, Depends(get_precision_service)]
 
 
 def to_market_view(market: dict[str, Any], spread_warning_percent: Decimal) -> MarketView:
@@ -78,6 +81,21 @@ async def list_markets(service: MarketService) -> MarketsResponse:
             for market in snapshot["markets"]
         ],
     )
+
+
+# Declared before "/{symbol}", which would otherwise take "meta" for an unknown pair.
+@router.get(
+    "/meta",
+    response_model=list[MarketMeta],
+    summary="Get price and quantity decimals",
+    description=(
+        "For every supported pair, the decimals of Binance's price tick size (PRICE_FILTER) "
+        "and quantity step size (LOT_SIZE), for display. They are loaded in the background at "
+        "startup and stay null until then, or when Binance could not be reached."
+    ),
+)
+async def get_markets_meta(precision: Precision) -> list[MarketMeta]:
+    return precision.view()
 
 
 @router.get(

@@ -95,7 +95,7 @@ const historyPanel = (() => {
       return row;
     }
 
-    const now = cell(`${formatPrice(result.current_price)} `);
+    const now = cell(`${formatPrice(result.current_price, false, item.symbol)} `);
     const priceType = document.createElement("span");
     priceType.className = "price-type";
     priceType.textContent = PRICE_LABELS[result.current_price_type];
@@ -104,7 +104,7 @@ const historyPanel = (() => {
 
     const profitClass = direction(result.profit_eur);
     row.append(
-      cell(formatPrice(result.historical_price)),
+      cell(formatPrice(result.historical_price, false, item.symbol)),
       now,
       cell(formatEur(result.value_eur)),
       cell(formatEur(result.profit_eur, true), `num ${profitClass ?? ""}`),

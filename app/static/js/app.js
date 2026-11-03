@@ -75,19 +75,21 @@ const state = {
   // New data arrived since the last reorder.
   sortDirty: false,
   pointerOverTable: false,
+  // symbol -> { price_decimals, quantity_decimals } from /api/markets/meta; empty until loaded.
+  precision: new Map(),
 };
 
 // ---------- Formatting ----------
 
 const numberFormats = new Map();
 
-function numberFormat(fractionDigits, signed) {
-  const key = `${fractionDigits}:${signed}`;
+function numberFormat(fractionDigits, signed, minimumDigits) {
+  const key = `${fractionDigits}:${signed}:${minimumDigits}`;
   if (!numberFormats.has(key)) {
     numberFormats.set(
       key,
       new Intl.NumberFormat(LOCALE, {
-        minimumFractionDigits: Math.min(2, fractionDigits),
+        minimumFractionDigits: minimumDigits,
         maximumFractionDigits: fractionDigits,
         signDisplay: signed ? "exceptZero" : "auto",
       }),
@@ -108,16 +110,41 @@ function priceDigits(value) {
   return 6;
 }
 
-function formatNumber(value, fractionDigits, signed = false) {
+function formatNumber(
+  value,
+  fractionDigits,
+  signed = false,
+  minimumDigits = Math.min(2, fractionDigits),
+) {
   if (isMissing(value)) return MISSING;
   const number = Number(value);
   if (!Number.isFinite(number)) return MISSING;
-  return numberFormat(fractionDigits, signed).format(number);
+  return numberFormat(fractionDigits, signed, minimumDigits).format(number);
 }
 
-function formatPrice(value, signed = false) {
+// Decimals of the pair's Binance tick size (prices) or step size (quantities); null while
+// /api/markets/meta has not loaded or Binance did not say, so callers keep their own rule.
+function priceDecimals(symbol) {
+  const decimals = state.precision.get(symbol)?.price_decimals;
+  return Number.isInteger(decimals) ? decimals : null;
+}
+
+function quantityDecimals(symbol) {
+  const decimals = state.precision.get(symbol)?.quantity_decimals;
+  return Number.isInteger(decimals) ? decimals : null;
+}
+
+function formatPrice(value, signed = false, symbol = null) {
   if (isMissing(value)) return MISSING;
-  return formatNumber(value, priceDigits(value), signed);
+  const decimals = priceDecimals(symbol);
+  if (decimals === null) return formatNumber(value, priceDigits(value), signed);
+  return formatNumber(value, decimals, signed, decimals);
+}
+
+function formatQuantity(value, symbol) {
+  const decimals = quantityDecimals(symbol);
+  if (decimals === null) return formatNumber(value, 2);
+  return formatNumber(value, decimals, false, decimals);
 }
 
 function formatPercent(value) {
@@ -199,8 +226,14 @@ function renderRow(market) {
     previous.market.last_price !== market.last_price;
   state.markets.set(market.symbol, { market });
 
-  const priceCell = setCell(row, "last_price", formatPrice(market.last_price));
-  setCell(row, "price_change", formatPrice(market.price_change, true), market.price_change);
+  const symbol = market.symbol;
+  const priceCell = setCell(row, "last_price", formatPrice(market.last_price, false, symbol));
+  setCell(
+    row,
+    "price_change",
+    formatPrice(market.price_change, true, symbol),
+    market.price_change,
+  );
   setCell(
     row,
     "price_change_percent",
@@ -210,17 +243,17 @@ function renderRow(market) {
   for (const field of ["change_1h_percent", "change_4h_percent"]) {
     setCell(row, field, formatPercent(market[field]), market[field]);
   }
-  setCell(row, "high_24h", formatPrice(market.high_24h));
-  setCell(row, "low_24h", formatPrice(market.low_24h));
-  setCell(row, "volume_24h", formatNumber(market.volume_24h, 2));
-  setCell(row, "bid_price", formatPrice(market.bid_price));
-  setCell(row, "ask_price", formatPrice(market.ask_price));
+  setCell(row, "high_24h", formatPrice(market.high_24h, false, symbol));
+  setCell(row, "low_24h", formatPrice(market.low_24h, false, symbol));
+  setCell(row, "volume_24h", formatQuantity(market.volume_24h, symbol));
+  setCell(row, "bid_price", formatPrice(market.bid_price, false, symbol));
+  setCell(row, "ask_price", formatPrice(market.ask_price, false, symbol));
   renderSpread(row, market);
   if (priceChanged && priceCell) flash(priceCell);
 
   const card = cards.get(market.symbol);
   if (card) {
-    const cardPrice = setCell(card, "last_price", formatPrice(market.last_price));
+    const cardPrice = setCell(card, "last_price", formatPrice(market.last_price, false, symbol));
     setCell(
       card,
       "price_change_percent",
@@ -397,7 +430,7 @@ function renderWatchlistPrice(symbol) {
   const item = watchlistItem(symbol);
   const market = state.markets.get(symbol)?.market;
   if (!item || !market) return;
-  const priceCell = setCell(item, "last_price", formatPrice(market.last_price));
+  const priceCell = setCell(item, "last_price", formatPrice(market.last_price, false, symbol));
   setCell(
     item,
     "price_change_percent",
@@ -506,6 +539,26 @@ async function toggleWatch(symbol) {
   }
 }
 
+// ---------- Precision ----------
+
+async function loadMarketMeta() {
+  let metas;
+  try {
+    const response = await fetch("/api/markets/meta");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    metas = await response.json();
+  } catch (error) {
+    // Display only: the formatting guessed from the values keeps working without it.
+    console.warn("Could not load pair precision; using the default formatting", error);
+    return;
+  }
+  for (const meta of metas) state.precision.set(meta.symbol, meta);
+  // Redraws what is already on screen without flashing it as a price change; everything
+  // drawn after this uses the new decimals anyway.
+  for (const { market } of state.markets.values()) renderRow(market);
+  renderWatchlist();
+}
+
 // ---------- Alerts ----------
 
 const TOAST_DURATION_MS = 10000;
@@ -517,7 +570,8 @@ function showAlertToast(alert) {
   toast.setAttribute("role", "status");
   // The quote currency comes from the pair itself: "BTC/EUR" -> "EUR".
   const currency = alert.display_symbol.split("/")[1] ?? "";
-  toast.textContent = `${alert.display_symbol} ${verb} ${formatPrice(alert.target_price)} ${currency}`;
+  const price = formatPrice(alert.target_price, false, alert.symbol);
+  toast.textContent = `${alert.display_symbol} ${verb} ${price} ${currency}`;
   document.getElementById("toasts").append(toast);
   setTimeout(() => toast.remove(), TOAST_DURATION_MS);
 }
@@ -871,4 +925,5 @@ loadSort();
 renderSortHeaders();
 pairMetaPanel.init({ rows, displaySymbol, onFilterChange: applyFilter });
 loadWatchlist();
+loadMarketMeta();
 connect();

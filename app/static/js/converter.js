@@ -86,7 +86,8 @@ const converterPanel = (() => {
     } else {
       const base = result.symbol.slice(0, -EUR.length);
       meta.textContent =
-        `1 ${base} = ${formatPrice(result.price)} EUR · ${PRICE_LABELS[result.price_type]}`;
+        `1 ${base} = ${formatPrice(result.price, false, result.symbol)} EUR · ` +
+        PRICE_LABELS[result.price_type];
     }
 
     item.append(currency, amount, meta);

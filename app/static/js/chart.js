@@ -224,7 +224,7 @@ const chartPanel = (() => {
 
   // formatPrice() comes from app.js, which loads after this file; it only runs once data arrives.
   function formatEuro(value) {
-    return `${formatPrice(value)} €`;
+    return `${formatPrice(value, false, state.symbol)} €`;
   }
 
   function renderMarkers() {

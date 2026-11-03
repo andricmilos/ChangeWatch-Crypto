@@ -569,8 +569,53 @@ def parse_rest_kline(row: Any, symbol: str, interval: str, is_closed: bool) -> K
     )
 
 
+@dataclass(frozen=True)
+class SymbolPrecision:
+    """Decimals Binance allows for a pair's prices and quantities; None when unknown."""
+
+    price_decimals: int | None
+    quantity_decimals: int | None
+
+
+def step_decimals(step: Any) -> int | None:
+    """Decimals of a Binance tick or step size: "0.01000000" -> 2, "1.00000000" -> 0."""
+    value = _to_decimal(step)
+    # 0 means Binance has switched the rule off, so it says nothing about decimals.
+    if value is None or value <= 0:
+        return None
+    exponent = value.normalize().as_tuple().exponent
+    if not isinstance(exponent, int):
+        return None
+    return max(0, -exponent)
+
+
+def _filter_value(filters: Any, filter_type: str, key: str) -> Any:
+    if not isinstance(filters, list):
+        return None
+    for entry in filters:
+        if isinstance(entry, dict) and entry.get("filterType") == filter_type:
+            return entry.get(key)
+    return None
+
+
+def parse_exchange_info(data: Any, allowed: set[str]) -> dict[str, SymbolPrecision]:
+    """Precision per pair from /api/v3/exchangeInfo (PRICE_FILTER tickSize, LOT_SIZE stepSize)."""
+    if not isinstance(data, dict) or not isinstance(data.get("symbols"), list):
+        raise ExchangeUnavailableError("Binance exchangeInfo returned an unexpected payload")
+    precision: dict[str, SymbolPrecision] = {}
+    for entry in data["symbols"]:
+        if not isinstance(entry, dict) or entry.get("symbol") not in allowed:
+            continue
+        filters = entry.get("filters")
+        precision[entry["symbol"]] = SymbolPrecision(
+            price_decimals=step_decimals(_filter_value(filters, "PRICE_FILTER", "tickSize")),
+            quantity_decimals=step_decimals(_filter_value(filters, "LOT_SIZE", "stepSize")),
+        )
+    return precision
+
+
 class BinanceRestClient:
-    """Candles and fallback tickers from Binance REST (public market data endpoint only)."""
+    """Candles, fallback tickers and pair precision from Binance REST (public data only)."""
 
     RATE_LIMIT_STATUSES = (418, 429)
     DEFAULT_RATE_LIMIT_PAUSE = 60.0
@@ -631,7 +676,20 @@ class BinanceRestClient:
         tickers = [parse_rest_ticker(entry, set(symbols)) for entry in entries]
         return [ticker for ticker in tickers if ticker is not None]
 
+    async def get_exchange_info(self, symbols: list[str]) -> dict[str, SymbolPrecision]:
+        """Price and quantity decimals for `symbols` in one request (weight 20)."""
+        data = await self._get_json(
+            "/api/v3/exchangeInfo", {"symbols": json.dumps(symbols, separators=(",", ":"))}
+        )
+        return parse_exchange_info(data, set(symbols))
+
     async def _get_list(self, path: str, params: dict[str, Any]) -> list[Any]:
+        rows = await self._get_json(path, params)
+        if not isinstance(rows, list):
+            raise ExchangeUnavailableError("Binance REST returned an unexpected payload")
+        return rows
+
+    async def _get_json(self, path: str, params: dict[str, Any]) -> Any:
         if time.monotonic() < self._paused_until:
             # After 429/418 Binance bans clients that keep retrying, so wait out the pause.
             raise ExchangeUnavailableError("Binance rate limit pause is still active")
@@ -666,12 +724,9 @@ class BinanceRestClient:
         self.stats.record_region_blocked(False)
 
         try:
-            rows = response.json()
+            return response.json()
         except ValueError as exc:
             raise ExchangeUnavailableError("Binance REST returned invalid JSON") from exc
-        if not isinstance(rows, list):
-            raise ExchangeUnavailableError("Binance REST returned an unexpected payload")
-        return rows
 
     def _retry_after(self, response: httpx.Response) -> float:
         try:

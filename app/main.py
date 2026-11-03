@@ -37,6 +37,7 @@ from app.services.exchange_client import (
 from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService, MarketEvent
 from app.services.orderbook_service import OrderBookService
+from app.services.precision_service import PrecisionService
 from app.services.rest_fallback import RestFallbackPoller
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
@@ -107,9 +108,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     rest_fallback_task = asyncio.create_task(rest_fallback.run())
     app.state.rest_fallback_task = rest_fallback_task
+    precision_service = PrecisionService(
+        lambda: rest_client.get_exchange_info(get_settings().supported_symbols),
+        get_settings().supported_symbols,
+    )
+    app.state.precision_service = precision_service
+    # In the background: startup must not wait for Binance, and the decimals are optional.
+    precision_task = asyncio.create_task(precision_service.run())
     yield
-    # Cancelled before the REST client closes, so no fallback request uses a closed client.
-    for task in (cleanup_task, rest_fallback_task):
+    # Cancelled before the REST client closes, so no request uses a closed client.
+    for task in (cleanup_task, rest_fallback_task, precision_task):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task

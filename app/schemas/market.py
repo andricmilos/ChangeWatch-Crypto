@@ -141,3 +141,17 @@ class MarketsResponse(BaseModel):
         examples=["ws"],
     )
     markets: list[MarketView] = Field(description="Every supported pair, in configured order.")
+
+
+class MarketMeta(BaseModel):
+    """Display precision of one pair, from Binance's PRICE_FILTER and LOT_SIZE rules."""
+
+    symbol: str = Field(description="Pair in Binance format.", examples=["BTCEUR"])
+    price_decimals: int | None = Field(
+        description="Decimals of the price tick size; null until loaded from Binance.",
+        examples=[2],
+    )
+    quantity_decimals: int | None = Field(
+        description="Decimals of the quantity step size; null until loaded from Binance.",
+        examples=[5],
+    )

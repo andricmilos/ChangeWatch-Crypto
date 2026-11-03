@@ -6,8 +6,9 @@
 // - books of any other pair than the selected one are dropped (a switch can race a message);
 // - prices and quantities arrive as strings; Number() is used only to format them and to size
 //   the depth bars;
-// - decimals come from the data: the most significant decimals seen for the pair so far, so a
-//   book whose prices happen to end in 0 does not make the columns jump;
+// - decimals come from the pair's Binance tick and step size (/api/markets/meta, loaded by
+//   app.js); until those are known, from the data: the most significant decimals seen for the
+//   pair so far, so a book whose prices happen to end in 0 does not make the columns jump;
 // - only cells whose text changed are written, and only those get the short highlight.
 
 const orderBookPanel = (() => {
@@ -135,6 +136,9 @@ const orderBookPanel = (() => {
       state.priceDigits = Math.max(state.priceDigits, significantDecimals(level.price));
       state.quantityDigits = Math.max(state.quantityDigits, significantDecimals(level.quantity));
     }
+    // priceDecimals() and quantityDecimals() come from app.js, which loads after this file.
+    state.priceDigits = priceDecimals(state.symbol) ?? state.priceDigits;
+    state.quantityDigits = quantityDecimals(state.symbol) ?? state.quantityDigits;
   }
 
   function renderBook(book) {
