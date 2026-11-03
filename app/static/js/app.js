@@ -49,6 +49,7 @@ const elements = {
   tableWrap: document.querySelector(".table-wrap"),
   sortButtons: document.querySelectorAll(".markets .sort"),
   shortcuts: document.getElementById("shortcuts"),
+  favicon: document.getElementById("favicon"),
 };
 
 const state = {
@@ -376,7 +377,32 @@ function renderIndicator() {
   }
   elements.indicator.className = `indicator indicator-${kind}`;
   elements.indicatorLabel.textContent = label;
+  renderFavicon(kind);
   renderChartStale();
+}
+
+// Same colors as the indicator dot, read from the stylesheet so they stay in one place.
+const FAVICON_COLOR_VARS = {
+  live: "--green",
+  connecting: "--yellow",
+  fallback: "--yellow",
+  disconnected: "--red",
+};
+
+function renderFavicon(kind) {
+  const link = elements.favicon;
+  // renderIndicator runs on every status heartbeat; only touch the <link> on a real change.
+  if (!link || link.dataset.kind === kind) return;
+  link.dataset.kind = kind;
+  const color = getComputedStyle(document.documentElement)
+    .getPropertyValue(FAVICON_COLOR_VARS[kind])
+    .trim();
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+    `<circle cx="16" cy="16" r="15" fill="${color}"/>` +
+    '<text x="16" y="22" font-family="Arial,sans-serif" font-size="18" font-weight="700" ' +
+    'fill="#0d1117" text-anchor="middle">C</text></svg>';
+  link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
 }
 
 function renderChartStale() {
@@ -926,4 +952,5 @@ renderSortHeaders();
 pairMetaPanel.init({ rows, displaySymbol, onFilterChange: applyFilter });
 loadWatchlist();
 loadMarketMeta();
+renderIndicator();
 connect();
