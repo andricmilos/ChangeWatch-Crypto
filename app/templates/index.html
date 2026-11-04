@@ -117,6 +117,14 @@
             </tr>
             {% endfor %}
           </tbody>
+          <tbody id="markets-empty" hidden>
+            <tr>
+              <td colspan="15" class="markets-empty">
+                <span id="markets-empty-message" role="status"></span>
+                <button type="button" id="markets-empty-clear" class="note-button">Očisti filtere</button>
+              </td>
+            </tr>
+          </tbody>
         </table>
       </div>
       <div id="pair-tooltip" class="pair-tooltip" role="tooltip" hidden></div>

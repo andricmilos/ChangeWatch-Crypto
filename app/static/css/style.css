@@ -221,6 +221,17 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.markets td.markets-empty {
+  padding: 24px 10px;
+  text-align: center;
+  color: var(--muted);
+  white-space: normal;
+}
+
+.markets-empty .note-button {
+  margin-left: 12px;
+}
+
 /* Sortable headers: the button fills the header so the whole label is clickable. */
 
 .markets .sort {

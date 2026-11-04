@@ -46,6 +46,9 @@ const elements = {
   watchlistEmpty: document.getElementById("watchlist-empty"),
   watchlistError: document.getElementById("watchlist-error"),
   marketsBody: document.getElementById("markets-body"),
+  marketsEmpty: document.getElementById("markets-empty"),
+  marketsEmptyMessage: document.getElementById("markets-empty-message"),
+  marketsEmptyClear: document.getElementById("markets-empty-clear"),
   tableWrap: document.querySelector(".table-wrap"),
   sortButtons: document.querySelectorAll(".markets .sort"),
   shortcuts: document.getElementById("shortcuts"),
@@ -904,6 +907,26 @@ function applyFilter() {
       (onlyWatchlist && !state.watchlist.has(symbol)) ||
       !pairMetaPanel.matches(symbol);
   }
+  renderEmptyState();
+}
+
+function renderEmptyState() {
+  const query = elements.search.value.trim();
+  const filtered = query !== "" || elements.onlyWatchlist.checked || pairMetaPanel.hasFilter();
+  const anyVisible = [...rows.values()].some((row) => !row.hidden);
+  elements.marketsEmpty.hidden = !filtered || anyVisible;
+  if (elements.marketsEmpty.hidden) return;
+  // textContent, never innerHTML: the query is user input.
+  elements.marketsEmptyMessage.textContent =
+    query === "" ? "Nema parova za izabrane filtere." : `Nema parova za „${query}”.`;
+}
+
+function clearFilters() {
+  elements.search.value = "";
+  elements.onlyWatchlist.checked = false;
+  // Calls back into applyFilter() when a tag filter was active.
+  pairMetaPanel.clearFilter();
+  applyFilter();
 }
 
 function isTypingTarget(target) {
@@ -986,6 +1009,7 @@ elements.tableWrap.addEventListener("pointerleave", () => {
   state.pointerOverTable = false;
 });
 elements.onlyWatchlist.addEventListener("change", applyFilter);
+elements.marketsEmptyClear.addEventListener("click", clearFilters);
 for (const [symbol, row] of rows) {
   row.addEventListener("click", () => selectPair(symbol));
   row.querySelector(".star").addEventListener("click", (event) => {

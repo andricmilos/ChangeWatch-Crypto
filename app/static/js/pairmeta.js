@@ -527,6 +527,14 @@ const pairMetaPanel = (() => {
     elements.filterName.textContent = tag.name;
   }
 
+  function hasFilter() {
+    return state.filterTagId !== null;
+  }
+
+  function clearFilter() {
+    if (hasFilter()) setFilter(null);
+  }
+
   function matches(symbol) {
     // Until the lists arrive nobody knows which pairs have the tag, so nothing is hidden.
     if (state.filterTagId === null || !state.metasKnown) return true;
@@ -952,5 +960,5 @@ const pairMetaPanel = (() => {
     if (focusInside) trigger.focus();
   });
 
-  return { init, connected, handleMessage, matches };
+  return { init, connected, handleMessage, matches, hasFilter, clearFilter };
 })();
