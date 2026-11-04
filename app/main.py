@@ -24,7 +24,7 @@ from app.api.routes_status import router as status_router
 from app.api.routes_watchlist import router as watchlist_router
 from app.config import get_settings, settings_summary
 from app.database import SessionLocal, init_db
-from app.middleware import RequestTimingMiddleware
+from app.middleware import NoStoreLiveDataMiddleware, RequestTimingMiddleware
 from app.schemas.orderbook import OrderBookSnapshot
 from app.services.alert_service import AlertService
 from app.services.candle_service import CandleService
@@ -162,6 +162,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(RequestTimingMiddleware)
+app.add_middleware(NoStoreLiveDataMiddleware)
 app.include_router(market_router)
 app.include_router(convert_router)
 app.include_router(history_router)

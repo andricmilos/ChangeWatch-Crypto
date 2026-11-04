@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_market_service
 from app.config import Settings
 from app.main import app
-from app.middleware import RequestTimingMiddleware
+from app.middleware import NoStoreLiveDataMiddleware, RequestTimingMiddleware
 from app.services.market_data_service import MarketDataService
 
 MIDDLEWARE_LOGGER = "app.middleware"
@@ -126,3 +126,56 @@ def test_route_exception_logs_500_and_reaches_error_handler(caplog):
     records = middleware_records(caplog)
     assert len(records) == 1
     assert re.fullmatch(r"GET /api/boom 500 \d+\.\dms", records[0].getMessage())
+
+
+LIVE_DATA_PATHS = [
+    "/api/markets",
+    "/api/markets/BTCEUR",
+    "/api/markets/meta",
+    "/api/markets/BTCEUR/orderbook",
+    "/api/status",
+    "/api/convert",
+    "/health",
+]
+
+
+def make_no_store_app() -> FastAPI:
+    test_app = FastAPI()
+    test_app.add_middleware(NoStoreLiveDataMiddleware)
+
+    async def ok() -> dict[str, str]:
+        return {"status": "ok"}
+
+    for path in [*LIVE_DATA_PATHS, "/api/markets/BTCEUR/candles"]:
+        test_app.add_api_route(path, ok)
+    return test_app
+
+
+@pytest.mark.parametrize("path", LIVE_DATA_PATHS)
+def test_live_data_responses_are_not_stored(path):
+    response = TestClient(make_no_store_app()).get(path)
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_candles_response_keeps_default_caching():
+    response = TestClient(make_no_store_app()).get("/api/markets/BTCEUR/candles")
+
+    assert response.status_code == 200
+    assert "Cache-Control" not in response.headers
+
+
+@pytest.mark.parametrize("path", ["/api/markets", "/api/markets/BTCEUR", "/health"])
+def test_app_live_data_responses_are_not_stored(client, path):
+    response = client.get(path)
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_app_static_file_is_not_marked_no_store(client):
+    response = client.get("/static/css/style.css")
+
+    assert response.status_code == 200
+    assert "no-store" not in response.headers.get("Cache-Control", "")

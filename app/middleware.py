@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from collections.abc import Callable
 
@@ -12,6 +13,11 @@ SLOW_REQUEST_MS = 500
 # the requests worth reading.
 QUIET_PATHS = ("/health",)
 QUIET_PREFIXES = ("/static/",)
+# Responses that show the current state: a cached copy would show a stale price. Candles
+# (/api/markets/{symbol}/candles) are history and /static files never change, so neither matches.
+LIVE_DATA_PATH = re.compile(
+    r"^/health$|^/api/status$|^/api/convert$|^/api/markets(/[^/]+(/orderbook)?)?$"
+)
 
 
 class RequestTimingMiddleware:
@@ -51,6 +57,25 @@ class RequestTimingMiddleware:
 
     def _elapsed_ms(self, start: float) -> float:
         return (self.clock() - start) * 1000
+
+
+class NoStoreLiveDataMiddleware:
+    """Adds "Cache-Control: no-store" to HTTP responses with live data (LIVE_DATA_PATH)."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not LIVE_DATA_PATH.match(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_no_store(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                MutableHeaders(scope=message)["Cache-Control"] = "no-store"
+            await send(message)
+
+        await self.app(scope, receive, send_with_no_store)
 
 
 def log_request(scope: Scope, status: int, duration_ms: float) -> None:
