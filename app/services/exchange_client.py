@@ -17,7 +17,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
 from app.config import Settings, get_settings
-from app.schemas.market import KlineUpdate, MarketTicker, RollingChange
+from app.schemas.market import KlineUpdate, MarketTicker, RollingChange, WindowStats
 from app.schemas.orderbook import OrderBookLevel, OrderBookSnapshot
 from app.services.runtime_stats import RuntimeStats
 
@@ -614,8 +614,24 @@ def parse_exchange_info(data: Any, allowed: set[str]) -> dict[str, SymbolPrecisi
     return precision
 
 
+def parse_window_stats(data: Any, symbol: str) -> WindowStats:
+    """One /api/v3/ticker (rolling window) entry; an unusable value becomes None, never 0."""
+    if not isinstance(data, dict) or data.get("symbol") != symbol:
+        raise ExchangeUnavailableError(
+            "Binance rolling window ticker returned an unexpected payload"
+        )
+    return WindowStats(
+        high=_to_positive_decimal(data.get("highPrice")),
+        low=_to_positive_decimal(data.get("lowPrice")),
+        open=_to_positive_decimal(data.get("openPrice")),
+        last=_to_positive_decimal(data.get("lastPrice")),
+        price_change_percent=_to_decimal(data.get("priceChangePercent")),
+        volume=_to_decimal(data.get("volume")),
+    )
+
+
 class BinanceRestClient:
-    """Candles, fallback tickers and pair precision from Binance REST (public data only)."""
+    """Candles, tickers, window statistics and pair precision from Binance REST (public data)."""
 
     RATE_LIMIT_STATUSES = (418, 429)
     DEFAULT_RATE_LIMIT_PAUSE = 60.0
@@ -682,6 +698,11 @@ class BinanceRestClient:
             "/api/v3/exchangeInfo", {"symbols": json.dumps(symbols, separators=(",", ":"))}
         )
         return parse_exchange_info(data, set(symbols))
+
+    async def get_window_stats(self, symbol: str, window: str) -> WindowStats:
+        """Rolling window statistics, e.g. window="7d" (1m-59m, 1h-23h, 1d-7d; weight 4)."""
+        data = await self._get_json("/api/v3/ticker", {"symbol": symbol, "windowSize": window})
+        return parse_window_stats(data, symbol)
 
     async def _get_list(self, path: str, params: dict[str, Any]) -> list[Any]:
         rows = await self._get_json(path, params)

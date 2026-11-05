@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if pair %}{{ pair.display_symbol }} · {% endif %}ChangeWatch Crypto</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand">ChangeWatch Crypto</h1>
+  </header>
+  <main>
+    <p><a href="/">← Svi parovi</a></p>
+    {% if pair %}
+      <h2 id="pair-name" data-symbol="{{ pair.symbol }}">{{ pair.display_symbol }}</h2>
+    {% else %}
+      <h2>Par ne postoji</h2>
+      <p>Par „{{ requested }}” nije među podržanim parovima.</p>
+    {% endif %}
+  </main>
+</body>
+</html>

@@ -8,6 +8,7 @@ from app.services.candle_service import CandleService
 from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService
 from app.services.orderbook_service import OrderBookService
+from app.services.pair_stats_service import PairStatsService
 from app.services.precision_service import PrecisionService
 from app.services.runtime_stats import RuntimeStats
 from app.websocket.manager import ConnectionManager
@@ -29,6 +30,10 @@ def get_orderbook_service(connection: HTTPConnection) -> OrderBookService:
 
 def get_precision_service(connection: HTTPConnection) -> PrecisionService:
     return connection.app.state.precision_service
+
+
+def get_pair_stats_service(connection: HTTPConnection) -> PairStatsService:
+    return connection.app.state.pair_stats_service
 
 
 def get_candle_service(connection: HTTPConnection) -> CandleService:

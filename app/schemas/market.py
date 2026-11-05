@@ -155,3 +155,23 @@ class MarketMeta(BaseModel):
         description="Decimals of the quantity step size; null until loaded from Binance.",
         examples=[5],
     )
+
+
+class WindowStats(BaseModel):
+    """Statistics over a rolling window (e.g. 7 days) from Binance's /api/v3/ticker.
+
+    Each value is null when Binance sent nothing usable for it, never 0.
+    """
+
+    high: Decimal | None = Field(description="Highest price in the window.", examples=["73480.00"])
+    low: Decimal | None = Field(description="Lowest price in the window.", examples=["66632.00"])
+    open: Decimal | None = Field(
+        description="Price at the start of the window.", examples=["71825.27"]
+    )
+    last: Decimal | None = Field(description="Last trade price.", examples=["67627.64"])
+    price_change_percent: Decimal | None = Field(
+        description="Price change over the window, in percent.", examples=["-5.844"]
+    )
+    volume: Decimal | None = Field(
+        description="Traded volume in the window, in the base asset.", examples=["1227.61854000"]
+    )

@@ -1,12 +1,24 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_connection_manager, get_market_service, normalize_symbol
+from app.api.dependencies import (
+    get_alert_service,
+    get_connection_manager,
+    get_market_service,
+    get_orderbook_service,
+    get_pair_stats_service,
+    get_precision_service,
+    normalize_symbol,
+)
+from app.api.routes_market import to_market_view
 from app.api.routes_notes import WRITE_FORBIDDEN, WriteGuards
 from app.database import get_session
-from app.models import Tag
+from app.models import Note, Tag
+from app.schemas.alert import AlertOut
 from app.schemas.error import (
     RATE_LIMITED,
     UNKNOWN_SYMBOL,
@@ -14,6 +26,8 @@ from app.schemas.error import (
     validation_error,
     validation_or_error,
 )
+from app.schemas.market import WindowStats
+from app.schemas.pair import PairSummary
 from app.schemas.tag import (
     PairMeta,
     PairNoteUpdate,
@@ -24,7 +38,10 @@ from app.schemas.tag import (
     TagWithCount,
 )
 from app.services import pair_meta_service
+from app.services.alert_service import AlertService
+from app.services.exchange_client import ExchangeUnavailableError
 from app.services.market_data_service import MarketDataService
+from app.services.orderbook_service import OrderBookService
 from app.services.pair_meta_service import (
     MAX_TAGS,
     MAX_TAGS_PER_PAIR,
@@ -33,7 +50,11 @@ from app.services.pair_meta_service import (
     TagLimitError,
     UnknownTagError,
 )
+from app.services.pair_stats_service import PairStatsService
+from app.services.precision_service import PrecisionService
 from app.websocket.manager import ConnectionManager
+
+logger = logging.getLogger(__name__)
 
 tags_router = APIRouter(prefix="/api/tags", tags=["tags"])
 pairs_router = APIRouter(prefix="/api/pairs", tags=["pairs"])
@@ -41,6 +62,13 @@ pairs_router = APIRouter(prefix="/api/pairs", tags=["pairs"])
 Session = Annotated[AsyncSession, Depends(get_session)]
 MarketService = Annotated[MarketDataService, Depends(get_market_service)]
 Manager = Annotated[ConnectionManager, Depends(get_connection_manager)]
+OrderBooks = Annotated[OrderBookService, Depends(get_orderbook_service)]
+Precision = Annotated[PrecisionService, Depends(get_precision_service)]
+PairStats = Annotated[PairStatsService, Depends(get_pair_stats_service)]
+Alerts = Annotated[AlertService, Depends(get_alert_service)]
+
+TRIGGERED_ALERTS_LIMIT = 10
+STATS_UNAVAILABLE = "Berza trenutno nije dostupna"
 
 TOO_MANY_TAGS = f"Najviše {MAX_TAGS} oznaka; obriši neku pre dodavanja nove"
 TOO_MANY_PAIR_TAGS = f"Par može imati najviše {MAX_TAGS_PER_PAIR} oznaka"
@@ -166,6 +194,64 @@ async def delete_tag(tag_id: int, session: Session, manager: Manager) -> Respons
 )
 async def list_pair_meta(session: Session, service: MarketService) -> list[PairMeta]:
     return await pair_meta_service.pair_metas(session, service.settings.supported_symbols)
+
+
+@pairs_router.get(
+    "/{symbol}/summary",
+    response_model=PairSummary,
+    summary="Everything about one pair",
+    description=(
+        "Live market data, 7-day statistics, decimals, order book, tags, note, alerts and the "
+        "number of chart notes of one pair. 7-day statistics come from Binance REST, cached "
+        "for 60 seconds; when Binance cannot be reached, stats_7d is null, stats_7d_error "
+        "says why, and the rest of the response is still returned with 200. "
+        "The symbol may be written as BTCEUR, btceur, BTC-EUR or BTC/EUR."
+    ),
+    responses={404: UNKNOWN_SYMBOL},
+)
+async def get_pair_summary(
+    symbol: str,
+    session: Session,
+    service: MarketService,
+    orderbooks: OrderBooks,
+    precision: Precision,
+    pair_stats: PairStats,
+    alerts: Alerts,
+) -> PairSummary:
+    normalized = normalize_symbol(symbol, service.settings.supported_symbols)
+    market = next(m for m in service.snapshot()["markets"] if m["symbol"] == normalized)
+
+    stats_7d: WindowStats | None = None
+    stats_7d_error: str | None = None
+    try:
+        stats_7d = await pair_stats.get_7d(normalized)
+    except ExchangeUnavailableError as exc:
+        # The statistics are one part of the page; losing them must not lose the rest.
+        logger.warning("7-day statistics for %s unavailable: %s", normalized, exc)
+        stats_7d_error = STATS_UNAVAILABLE
+
+    meta = await pair_meta_service.pair_meta(session, normalized)
+    chart_notes_count = await session.scalar(
+        select(func.count()).select_from(Note).where(Note.symbol == normalized)
+    )
+    return PairSummary(
+        market=to_market_view(market, service.settings.spread_warning_percent),
+        stats_7d=stats_7d,
+        stats_7d_error=stats_7d_error,
+        meta=next(m for m in precision.view() if m.symbol == normalized),
+        orderbook=orderbooks.view(normalized),
+        tags=meta.tags,
+        pair_note=meta.note,
+        active_alerts=[
+            AlertOut.model_validate(alert)
+            for alert in await alerts.list_alerts(active=True, symbol=normalized)
+        ],
+        triggered_alerts=[
+            AlertOut.model_validate(alert)
+            for alert in await alerts.recent_triggered(normalized, TRIGGERED_ALERTS_LIMIT)
+        ],
+        chart_notes_count=chart_notes_count or 0,
+    )
 
 
 @pairs_router.put(

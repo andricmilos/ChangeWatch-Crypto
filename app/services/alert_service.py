@@ -91,6 +91,17 @@ class AlertService:
         async with self.session_factory() as session:
             return list(await session.scalars(query))
 
+    async def recent_triggered(self, symbol: str, limit: int) -> list[PriceAlert]:
+        """The pair's last `limit` fired alerts, newest first."""
+        query = (
+            select(PriceAlert)
+            .where(PriceAlert.symbol == symbol, PriceAlert.triggered_at.is_not(None))
+            .order_by(PriceAlert.triggered_at.desc(), PriceAlert.id.desc())
+            .limit(limit)
+        )
+        async with self.session_factory() as session:
+            return list(await session.scalars(query))
+
     async def create(self, payload: AlertCreate) -> PriceAlert:
         alert = PriceAlert(
             symbol=payload.symbol, target_price=payload.target_price, condition=payload.condition

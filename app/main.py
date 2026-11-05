@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import __version__
-from app.api.dependencies import get_market_service
+from app.api.dependencies import get_market_service, parse_symbol
 from app.api.routes_alerts import partials_router as alerts_partials_router
 from app.api.routes_alerts import router as alerts_router
 from app.api.routes_convert import router as convert_router
@@ -37,6 +37,7 @@ from app.services.exchange_client import (
 from app.services.history_service import HistoryService
 from app.services.market_data_service import MarketDataService, MarketEvent
 from app.services.orderbook_service import OrderBookService
+from app.services.pair_stats_service import PairStatsService
 from app.services.precision_service import PrecisionService
 from app.services.rest_fallback import RestFallbackPoller
 from app.services.runtime_stats import RuntimeStats
@@ -80,6 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.connection_manager = manager
     app.state.candle_service = candle_service
     app.state.history_service = HistoryService(rest_client)
+    app.state.pair_stats_service = PairStatsService(rest_client.get_window_stats)
     app.state.alert_service = alert_service
 
     async def broadcast_market_event(event: MarketEvent) -> None:
@@ -210,6 +212,21 @@ async def dashboard(request: Request, service: MarketService) -> HTMLResponse:
     return templates.TemplateResponse(
         request, "index.html", {"pairs": pairs, "currencies": currencies}
     )
+
+
+@app.get("/pair/{symbol}", response_class=HTMLResponse, include_in_schema=False)
+async def pair_page(request: Request, symbol: str, service: MarketService) -> Response:
+    normalized = parse_symbol(symbol, service.settings.supported_symbols)
+    if normalized is None:
+        return templates.TemplateResponse(
+            request, "pair.html", {"pair": None, "requested": symbol}, status_code=404
+        )
+    if symbol != normalized:
+        # One address per pair, so links and bookmarks all point to /pair/BTCEUR.
+        url = request.url.replace(path=f"/pair/{normalized}")
+        return RedirectResponse(str(url), status_code=301)
+    pair = {"symbol": normalized, "display_symbol": to_display_symbol(normalized)}
+    return templates.TemplateResponse(request, "pair.html", {"pair": pair})
 
 
 # Hidden from /docs: it is for the deploy platform's health checks, not for API clients.

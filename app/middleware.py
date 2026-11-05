@@ -17,6 +17,7 @@ QUIET_PREFIXES = ("/static/",)
 # (/api/markets/{symbol}/candles) are history and /static files never change, so neither matches.
 LIVE_DATA_PATH = re.compile(
     r"^/health$|^/api/status$|^/api/convert$|^/api/markets(/[^/]+(/orderbook)?)?$"
+    r"|^/api/pairs/[^/]+/summary$"
 )
 
 
