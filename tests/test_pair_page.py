@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -187,6 +188,25 @@ async def test_cache_is_per_pair():
     await service.get_7d("BTCEUR")
 
     assert calls == ["BTCEUR", "ETHEUR"]
+
+
+async def test_concurrent_requests_share_one_binance_call():
+    calls: list[str] = []
+    release = asyncio.Event()
+
+    async def fetch(symbol: str, window: str) -> WindowStats:
+        calls.append(symbol)
+        await release.wait()
+        return parse_window_stats(TICKER_7D, symbol)
+
+    service = PairStatsService(fetch)
+    pending = asyncio.gather(*(service.get_7d("BTCEUR") for _ in range(3)))
+    await asyncio.sleep(0)
+    release.set()
+    results = await pending
+
+    assert calls == ["BTCEUR"]
+    assert results[0] == results[1] == results[2]
 
 
 async def test_failure_is_not_cached():
@@ -379,7 +399,7 @@ def test_summary_accepts_other_symbol_spellings(client):
     assert response.json()["market"]["symbol"] == "BTCEUR"
 
 
-@pytest.mark.parametrize("status", [503, 429])
+@pytest.mark.parametrize("status", [503, 429, 418, 451])
 def test_summary_without_binance_still_returns_200(client, binance, status):
     binance.statuses = [status]
 
