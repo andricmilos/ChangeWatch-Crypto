@@ -1,23 +1,78 @@
-<!doctype html>
-<html lang="sr-Latn">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if pair %}{{ pair.display_symbol }} · {% endif %}ChangeWatch Crypto</title>
-  <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-  <header class="topbar">
-    <h1 class="brand">ChangeWatch Crypto</h1>
-  </header>
-  <main>
-    <p><a href="/">← Svi parovi</a></p>
+{% extends "base.html" %}
+
+{% block title %}{% if pair %}{{ pair.display_symbol }}{% else %}Par ne postoji{% endif %} · ChangeWatch{% endblock %}
+
+{# Nothing live to show for an unknown pair, so no connection status either. #}
+{% block topbar_status %}{% if pair %}{{ super() }}{% endif %}{% endblock %}
+{% block banners %}{% if pair %}{{ super() }}{% endif %}{% endblock %}
+
+{% block content %}
+  <main class="layout{% if pair %} pair-page{% endif %}">
     {% if pair %}
-      <h2 id="pair-name" data-symbol="{{ pair.symbol }}">{{ pair.display_symbol }}</h2>
+    <section class="panel pair-header" aria-labelledby="pair-name">
+      <a class="back-link" href="/">← Svi parovi</a>
+      <div class="pair-title">
+        <h2 id="pair-name" data-symbol="{{ pair.symbol }}">{{ pair.display_symbol }}</h2>
+        <span id="pair-status"><span class="status status-no-data">Nema podataka</span></span>
+      </div>
+      <p id="pair-loading" class="loading">Učitavanje cene…</p>
+      <div class="pair-quote">
+        <span class="pair-price" data-field="last_price">—</span>
+        <span class="pair-change">
+          <span data-field="price_change">—</span>
+          (<span data-field="price_change_percent">—</span>)
+          <span class="pair-change-label">24h</span>
+        </span>
+      </div>
+      <dl id="pair-book" class="pair-book" hidden>
+        <div><dt>Kupovna</dt><dd data-field="bid_price">—</dd></div>
+        <div><dt>Prodajna</dt><dd data-field="ask_price">—</dd></div>
+        <div><dt>Spread</dt><dd data-field="spread_percent">—</dd></div>
+      </dl>
+    </section>
+
+    <section class="pair-stats" aria-label="Statistika">
+      <article class="panel stats-card">
+        <h3>24 sata</h3>
+        <dl class="stats-list">
+          <div><dt>Max</dt><dd data-field="high_24h">—</dd></div>
+          <div><dt>Min</dt><dd data-field="low_24h">—</dd></div>
+          <div><dt>Volumen</dt><dd data-field="volume_24h">—</dd></div>
+        </dl>
+      </article>
+      <article id="stats-7d" class="panel stats-card">
+        <h3>7 dana</h3>
+        <p id="stats-7d-loading" class="note-muted">Učitavanje…</p>
+        <p id="stats-7d-unavailable" class="note-muted" hidden>
+          7-dnevna statistika trenutno nije dostupna
+        </p>
+        <dl id="stats-7d-list" class="stats-list" hidden>
+          <div><dt>Max</dt><dd data-field="high">—</dd></div>
+          <div><dt>Min</dt><dd data-field="low">—</dd></div>
+          <div><dt>Promena</dt><dd data-field="price_change_percent">—</dd></div>
+          <div><dt>Volumen</dt><dd data-field="volume">—</dd></div>
+        </dl>
+      </article>
+    </section>
+
+    {% include "partials/chart_panel.html" %}
+
+    {% with alert_form = false %}
+    {% include "partials/orderbook_panel.html" %}
+    {% endwith %}
     {% else %}
+    <section class="panel">
+      <p><a class="back-link" href="/">← Svi parovi</a></p>
       <h2>Par ne postoji</h2>
       <p>Par „{{ requested }}” nije među podržanim parovima.</p>
+    </section>
     {% endif %}
   </main>
-</body>
-</html>
+{% endblock %}
+
+{% block scripts %}
+  {% if pair %}
+  {% include "partials/live_scripts.html" %}
+  <script src="/static/js/pair.js"></script>
+  {% endif %}
+{% endblock %}

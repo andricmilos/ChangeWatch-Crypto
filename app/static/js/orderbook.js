@@ -1,13 +1,13 @@
 "use strict";
 
 // Live order book of the selected pair, pushed over /ws/market after subscribe_orderbook.
-// - app.js owns the socket: it passes a send function on every (re)connect, so the
+// - the page owns the socket (ws.js): it passes a send function on every (re)connect, so the
 //   subscription is sent again after a reconnect, and tells the panel when the socket closes;
 // - books of any other pair than the selected one are dropped (a switch can race a message);
 // - prices and quantities arrive as strings; Number() is used only to format them and to size
 //   the depth bars;
 // - decimals come from the pair's Binance tick and step size (/api/markets/meta, loaded by
-//   app.js); until those are known, from the data: the most significant decimals seen for the
+//   format.js); until those are known, from the data: the most significant decimals seen for the
 //   pair so far, so a book whose prices happen to end in 0 does not make the columns jump;
 // - only cells whose text changed are written, and only those get the short highlight.
 
@@ -58,7 +58,6 @@ const orderBookPanel = (() => {
 
   function fixedFormat(digits) {
     if (!formats.has(digits)) {
-      // LOCALE comes from app.js, which loads after this file; it only runs once data arrives.
       formats.set(
         digits,
         new Intl.NumberFormat(LOCALE, {
@@ -136,7 +135,6 @@ const orderBookPanel = (() => {
       state.priceDigits = Math.max(state.priceDigits, significantDecimals(level.price));
       state.quantityDigits = Math.max(state.quantityDigits, significantDecimals(level.quantity));
     }
-    // priceDecimals() and quantityDecimals() come from app.js, which loads after this file.
     state.priceDigits = priceDecimals(state.symbol) ?? state.priceDigits;
     state.quantityDigits = quantityDecimals(state.symbol) ?? state.quantityDigits;
   }

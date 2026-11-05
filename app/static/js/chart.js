@@ -42,6 +42,7 @@ const chartPanel = (() => {
     exportCandlesError: document.getElementById("export-candles-error"),
     exportNotes: document.getElementById("export-notes"),
     exportNotesError: document.getElementById("export-notes-error"),
+    copyLink: document.getElementById("copy-link"),
   };
 
   const INTERVAL_MS = { "1m": 60_000, "5m": 300_000, "15m": 900_000, "1h": 3_600_000 };
@@ -62,6 +63,8 @@ const chartPanel = (() => {
     timeStyle: "short",
   });
   const NOTE_MAX_LENGTH = 280;
+  const COPY_LINK_TEXT = "Kopiraj link";
+  const COPY_LABEL_MS = 1500;
   // Substrings of the server's English validation messages -> text for the user.
   const VALIDATION_MESSAGES = [
     ["HTML", "Tekst ne sme da sadrži HTML oznake."],
@@ -113,6 +116,35 @@ const chartPanel = (() => {
     elements.message.hidden = text === "";
   }
 
+  // ?interval=15m from the page URL; null when absent or not one of the chart's intervals.
+  function intervalFromUrl(params) {
+    const value = params.get("interval");
+    if (value === null) return null;
+    const interval = value.trim().toLowerCase();
+    return Object.hasOwn(INTERVAL_MS, interval) ? interval : null;
+  }
+
+  // ---------- Chart link ----------
+
+  // The page keeps its address in sync with the chart, so the address is the link.
+  async function copyLink() {
+    clearTimeout(Number(elements.copyLink.dataset.copyTimer));
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      elements.copyLink.textContent = "Link kopiran";
+    } catch (error) {
+      console.warn("Could not copy the chart link", error);
+      elements.copyLink.textContent = "Kopiranje nije uspelo";
+    }
+    elements.copyLink.dataset.copyTimer = String(
+      setTimeout(() => {
+        elements.copyLink.textContent = COPY_LINK_TEXT;
+      }, COPY_LABEL_MS),
+    );
+  }
+
+  elements.copyLink.addEventListener("click", copyLink);
+
   if (typeof LightweightCharts === "undefined") {
     showMessage("Biblioteka za grafikone nije učitana.");
     console.error("LightweightCharts is not available; the chart is disabled");
@@ -127,6 +159,7 @@ const chartPanel = (() => {
         return "1m";
       },
       onIntervalChange() {},
+      intervalFromUrl,
     };
   }
 
@@ -228,7 +261,6 @@ const chartPanel = (() => {
     return { time, position, shape, color: ALERT_COLOR, text };
   }
 
-  // formatPrice() comes from app.js, which loads after this file; it only runs once data arrives.
   function formatEuro(value) {
     return `${formatPrice(value, false, state.symbol)} €`;
   }
@@ -962,5 +994,6 @@ const chartPanel = (() => {
     selectInterval,
     getInterval,
     onIntervalChange,
+    intervalFromUrl,
   };
 })();

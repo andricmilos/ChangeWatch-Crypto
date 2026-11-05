@@ -67,7 +67,8 @@ const csvExport = (() => {
 
   const alertsButton = document.getElementById("export-alerts");
   const alertsError = document.getElementById("export-alerts-error");
-  alertsButton.addEventListener("click", () =>
+  // Only the dashboard has the alerts panel; the pair page uses download() for the chart.
+  alertsButton?.addEventListener("click", () =>
     download("/api/export/alerts.csv", alertsButton, alertsError),
   );
 

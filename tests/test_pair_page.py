@@ -419,6 +419,58 @@ def test_pair_page_renders(client):
     assert 'href="/"' in response.text
 
 
+def test_pair_page_title_names_the_pair(client):
+    html = client.get("/pair/BTCEUR").text
+
+    assert "<title>BTC/EUR · ChangeWatch</title>" in html
+
+
+def test_pair_page_shares_layout_with_dashboard(client):
+    html = client.get("/pair/BTCEUR").text
+
+    assert 'id="connection-indicator"' in html
+    assert 'id="banner-server"' in html
+    assert 'id="favicon"' in html
+    assert "TradingView Lightweight Charts™" in html
+
+
+def test_pair_page_has_quote_stats_chart_and_orderbook(client):
+    html = client.get("/pair/BTCEUR").text
+
+    assert 'id="pair-name" data-symbol="BTCEUR"' in html
+    for field in ["last_price", "price_change_percent", "bid_price", "ask_price"]:
+        assert f'data-field="{field}"' in html
+    for field in ["high_24h", "low_24h", "volume_24h", "high", "low", "volume"]:
+        assert f'data-field="{field}"' in html
+    assert "7-dnevna statistika trenutno nije dostupna" in html
+    assert 'id="chart"' in html
+    for interval in ["1m", "5m", "15m", "1h"]:
+        assert f'data-interval="{interval}"' in html
+    assert 'id="orderbook-table"' in html
+    # No alert form on this page, so a click on a book price has nothing to fill in.
+    assert "ciljnu cenu novog alerta" not in html
+
+
+def test_pair_page_loads_shared_scripts_then_its_own(client):
+    html = client.get("/pair/BTCEUR").text
+
+    format_script = html.index('<script src="/static/js/format.js"></script>')
+    ws_script = html.index('<script src="/static/js/ws.js"></script>')
+    chart_script = html.index('<script src="/static/js/chart.js"></script>')
+    orderbook_script = html.index('<script src="/static/js/orderbook.js"></script>')
+    pair_script = html.index('<script src="/static/js/pair.js"></script>')
+    assert format_script < ws_script < chart_script < orderbook_script < pair_script
+    assert "/static/js/app.js" not in html
+
+
+def test_unknown_pair_page_has_no_live_parts(client):
+    html = client.get("/pair/XRPEUR").text
+
+    assert "<title>Par ne postoji · ChangeWatch</title>" in html
+    assert 'id="connection-indicator"' not in html
+    assert "<script" not in html
+
+
 @pytest.mark.parametrize("spelling", ["btceur", "BTC-EUR", "btc-eur", "BtcEur"])
 def test_pair_page_redirects_to_canonical_symbol(client, spelling):
     response = client.get(f"/pair/{spelling}", follow_redirects=False)

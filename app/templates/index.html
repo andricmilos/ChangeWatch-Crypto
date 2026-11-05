@@ -1,33 +1,6 @@
-<!doctype html>
-<html lang="sr-Latn">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ChangeWatch Crypto</title>
-  <!-- Grey placeholder until app.js recolors it to match the connection indicator. -->
-  <link id="favicon" rel="icon" type="image/svg+xml"
-        href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2215%22 fill=%22%238b949e%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-family=%22Arial,sans-serif%22 font-size=%2218%22 font-weight=%22700%22 fill=%22%230d1117%22 text-anchor=%22middle%22%3EC%3C/text%3E%3C/svg%3E">
-  <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-  <header class="topbar">
-    <h1 class="brand">ChangeWatch Crypto</h1>
-    <div class="topbar-status">
-      <span id="connection-indicator" class="indicator indicator-connecting">
-        <span class="dot"></span>
-        <span id="connection-label">Povezivanje…</span>
-      </span>
-      <span class="last-update">Poslednje ažuriranje: <span id="last-update">—</span></span>
-    </div>
-  </header>
+{% extends "base.html" %}
 
-  <div id="banner-server" class="banner banner-red" role="alert" hidden>
-    Veza sa serverom je prekinuta — prikazane cene nisu aktuelne
-  </div>
-  <div id="banner-exchange" class="banner banner-yellow" role="status" hidden>
-    Veza sa berzom se obnavlja
-  </div>
-
+{% block content %}
   <main class="layout">
     <section class="overview" aria-label="Pregled tržišta">
       {% for pair in pairs[:5] %}
@@ -161,131 +134,9 @@
       </form>
     </section>
 
-    <section class="panel panel-chart">
-      <div class="panel-header">
-        <h2>Grafikon <span id="chart-symbol" class="chart-symbol">—</span></h2>
-        <div class="chart-controls">
-          <div class="button-group" role="group" aria-label="Interval">
-            <button type="button" class="toggle" data-interval="1m" aria-pressed="true">1m</button>
-            <button type="button" class="toggle" data-interval="5m" aria-pressed="false">5m</button>
-            <button type="button" class="toggle" data-interval="15m" aria-pressed="false">15m</button>
-            <button type="button" class="toggle" data-interval="1h" aria-pressed="false">1h</button>
-          </div>
-          <div class="button-group" role="group" aria-label="Tip grafikona">
-            <button type="button" class="toggle" data-chart-type="candles" aria-pressed="true">Sveće</button>
-            <button type="button" class="toggle" data-chart-type="line" aria-pressed="false">Linija</button>
-          </div>
-          <div class="button-group" role="group" aria-label="Markeri na grafikonu">
-            <button type="button" class="toggle" data-marker-kind="notes" aria-pressed="true">Beleške</button>
-            <button type="button" class="toggle" data-marker-kind="alerts" aria-pressed="true">Alerti</button>
-          </div>
-          <button type="button" id="note-add" class="note-button" aria-pressed="false" hidden>
-            Dodaj belešku
-          </button>
-          <button type="button" id="export-candles" class="note-button"
-                  title="1m sveće trenutnog para za prikazani period" disabled>
-            Preuzmi CSV
-          </button>
-          <button type="button" id="copy-link" class="note-button" aria-live="polite"
-                  title="Link do ovog para i intervala">
-            Kopiraj link
-          </button>
-        </div>
-      </div>
-      <p id="export-candles-error" class="note-error" role="alert" hidden></p>
-      <div class="chart-wrap">
-        <div id="chart"></div>
-        <div id="chart-message" class="chart-message" hidden></div>
-        <div id="chart-stale" class="chart-stale" role="status" hidden>Podaci nisu aktuelni</div>
-      </div>
-      <p id="note-pick-hint" class="note-hint" role="status" hidden>
-        Klikni na sveću za vreme beleške (Escape za izlaz).
-      </p>
-      <form id="note-form" class="note-form" hidden>
-        <p class="note-form-time">
-          <span id="note-form-local"></span>
-          <span id="note-form-utc" class="note-muted"></span>
-        </p>
-        <div class="note-form-row">
-          <input id="note-form-text" type="text" autocomplete="off" aria-label="Tekst beleške"
-                 placeholder="Tekst beleške">
-          <span id="note-form-count" class="note-count" aria-live="polite">0/280</span>
-          <button type="submit" class="note-button">Sačuvaj</button>
-          <button type="button" id="note-form-cancel" class="note-button">Otkaži</button>
-        </div>
-        <p id="note-form-error" class="note-error" role="alert" hidden></p>
-      </form>
-      <ul id="chart-notes" class="chart-notes" aria-label="Beleške i alerti za sveću" hidden></ul>
-      <p class="chart-note">Vreme je prikazano u UTC. <span class="shortcuts-hint">? – prečice</span></p>
-      <div class="notes-panel">
-        <div class="export-header">
-          <h3>Beleške za <span id="notes-panel-symbol">—</span></h3>
-          <button type="button" id="export-notes" class="note-button"
-                  title="Sve beleške trenutnog para" disabled>
-            Preuzmi CSV
-          </button>
-        </div>
-        <p id="export-notes-error" class="note-error" role="alert" hidden></p>
-        <p id="notes-panel-error" class="note-error" role="alert" hidden></p>
-        <p id="notes-panel-empty" class="note-muted">Nema beleški u prikazanom periodu.</p>
-        <ul id="notes-panel-list" class="notes-panel-list"></ul>
-      </div>
-    </section>
+    {% include "partials/chart_panel.html" %}
 
-    <section class="panel panel-orderbook">
-      <div class="panel-header">
-        <h2>Knjiga naloga <span id="orderbook-symbol" class="chart-symbol">—</span></h2>
-        <button type="button" id="orderbook-toggle" class="toggle orderbook-toggle"
-                aria-pressed="true">Knjiga naloga</button>
-      </div>
-      <div class="orderbook-wrap">
-        <p id="orderbook-message" class="orderbook-message">Učitavanje…</p>
-        <div id="orderbook-stale" class="orderbook-stale" role="status" hidden>Zastarelo</div>
-        <table id="orderbook-table" class="orderbook" hidden>
-          <thead>
-            <tr>
-              <th class="num">Cena</th>
-              <th class="num">Količina</th>
-              <th class="num">Ukupno</th>
-            </tr>
-          </thead>
-          <tbody id="orderbook-asks" class="orderbook-side orderbook-asks">
-            {% for _ in range(10) %}
-            <tr class="is-empty">
-              <td class="num"><button type="button" class="orderbook-price"
-                                      title="Postavi kao ciljnu cenu alerta"></button></td>
-              <td class="num" data-field="quantity"></td>
-              <td class="num" data-field="cumulative"></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-          <tbody class="orderbook-mid">
-            <tr>
-              <td class="num" id="orderbook-mid-price">—</td>
-              <td colspan="2" class="num" id="orderbook-spread">Spread —</td>
-            </tr>
-          </tbody>
-          <tbody id="orderbook-bids" class="orderbook-side orderbook-bids">
-            {% for _ in range(10) %}
-            <tr class="is-empty">
-              <td class="num"><button type="button" class="orderbook-price"
-                                      title="Postavi kao ciljnu cenu alerta"></button></td>
-              <td class="num" data-field="quantity"></td>
-              <td class="num" data-field="cumulative"></td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <div id="orderbook-imbalance" class="orderbook-imbalance" hidden>
-        <div class="imbalance-bar" aria-hidden="true">
-          <span id="imbalance-buyers" class="imbalance-buyers"></span>
-          <span id="imbalance-sellers" class="imbalance-sellers"></span>
-        </div>
-        <p id="imbalance-label" class="imbalance-label">—</p>
-      </div>
-      <p class="chart-note">Klikni na cenu da je upišeš kao ciljnu cenu novog alerta.</p>
-    </section>
+    {% include "partials/orderbook_panel.html" %}
 
     <section class="panel panel-watchlist">
       <h2>Watchlist</h2>
@@ -398,25 +249,14 @@
       </dl>
     </div>
   </dialog>
+{% endblock %}
 
-  <footer class="footer">
-    <p>
-      Grafikoni:
-      <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>.
-      Copyright (c) 2025 TradingView, Inc. https://www.tradingview.com/
-    </p>
-  </footer>
-
+{% block scripts %}
+  {% include "partials/live_scripts.html" %}
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-  <script src="https://unpkg.com/lightweight-charts@5.2/dist/lightweight-charts.standalone.production.js"></script>
-  <script src="/static/js/export.js"></script>
-  <script src="/static/js/chart.js"></script>
-  <script src="/static/js/orderbook.js"></script>
   <script src="/static/js/pairmeta.js"></script>
   <script src="/static/js/app.js"></script>
-  <!-- After app.js: it reuses formatPrice() and LOCALE from there. -->
   <script src="/static/js/converter.js"></script>
   <!-- After converter.js: it reuses parseAmount() and formatAmount() from there. -->
   <script src="/static/js/history.js"></script>
-</body>
-</html>
+{% endblock %}

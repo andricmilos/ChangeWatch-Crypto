@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ChangeWatch Crypto{% endblock %}</title>
+  <!-- Grey placeholder until ws.js recolors it to match the connection indicator. -->
+  <link id="favicon" rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2215%22 fill=%22%238b949e%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-family=%22Arial,sans-serif%22 font-size=%2218%22 font-weight=%22700%22 fill=%22%230d1117%22 text-anchor=%22middle%22%3EC%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 class="brand">ChangeWatch Crypto</h1>
+    {% block topbar_status %}
+    <div class="topbar-status">
+      <span id="connection-indicator" class="indicator indicator-connecting">
+        <span class="dot"></span>
+        <span id="connection-label">Povezivanje…</span>
+      </span>
+      <span class="last-update">Poslednje ažuriranje: <span id="last-update">—</span></span>
+    </div>
+    {% endblock %}
+  </header>
+
+  {% block banners %}
+  <div id="banner-server" class="banner banner-red" role="alert" hidden>
+    Veza sa serverom je prekinuta — prikazane cene nisu aktuelne
+  </div>
+  <div id="banner-exchange" class="banner banner-yellow" role="status" hidden>
+    Veza sa berzom se obnavlja
+  </div>
+  {% endblock %}
+
+  {% block content %}{% endblock %}
+
+  <footer class="footer">
+    <p>
+      Grafikoni:
+      <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>.
+      Copyright (c) 2025 TradingView, Inc. https://www.tradingview.com/
+    </p>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,15 +1,8 @@
 "use strict";
 
-// Prices arrive as strings ("72416.85"). Number() is used only to format them for display,
-// never to compare them: equality checks and signs are decided on the strings themselves.
+// The dashboard. Formatting comes from format.js and the /ws/market connection from ws.js.
+// Prices arrive as strings; Number() is used only to format them for display.
 
-const STALE_AFTER_MS = 15000;
-const RECONNECT_INITIAL_DELAY_MS = 1000;
-const RECONNECT_MAX_DELAY_MS = 30000;
-const LOCALE = "sr-Latn-RS";
-const MISSING = "—";
-const HIGH_SPREAD_TOOLTIP =
-  "Velika razlika između kupovne i prodajne cene — tržište je manje likvidno.";
 // Live prices would otherwise reshuffle the sorted table every second.
 const RESORT_MIN_INTERVAL_MS = 5000;
 const COPY_LABEL_MS = 1500;
@@ -34,11 +27,6 @@ for (const card of document.querySelectorAll(".card[data-symbol]")) {
 }
 
 const elements = {
-  indicator: document.getElementById("connection-indicator"),
-  indicatorLabel: document.getElementById("connection-label"),
-  lastUpdate: document.getElementById("last-update"),
-  serverBanner: document.getElementById("banner-server"),
-  exchangeBanner: document.getElementById("banner-exchange"),
   loading: document.getElementById("loading"),
   search: document.getElementById("search"),
   onlyWatchlist: document.getElementById("only-watchlist"),
@@ -52,23 +40,11 @@ const elements = {
   tableWrap: document.querySelector(".table-wrap"),
   sortButtons: document.querySelectorAll(".markets .sort"),
   shortcuts: document.getElementById("shortcuts"),
-  favicon: document.getElementById("favicon"),
-  copyLink: document.getElementById("copy-link"),
 };
 
 const state = {
   // symbol -> { market }
   markets: new Map(),
-  // When the last message proving live exchange data arrived (any pair's ticker or kline);
-  // null when the data on screen is not current. Shared by all rows: quiet pairs such as
-  // ADA/EUR can go minutes without a ticker while their price is still current.
-  liveDataAtMs: null,
-  socketState: "connecting", // "connecting" | "open" | "closed"
-  exchangeStatus: null,
-  // "rest" while the server polls Binance REST because its stream connection is down.
-  priceSource: "ws",
-  reconnectDelayMs: RECONNECT_INITIAL_DELAY_MS,
-  lastUpdateMs: null,
   selectedSymbol: null,
   // Symbols in the order they were added; a Set keeps insertion order.
   watchlist: new Set(),
@@ -80,145 +56,7 @@ const state = {
   // New data arrived since the last reorder.
   sortDirty: false,
   pointerOverTable: false,
-  // symbol -> { price_decimals, quantity_decimals } from /api/markets/meta; empty until loaded.
-  precision: new Map(),
 };
-
-// ---------- Formatting ----------
-
-const numberFormats = new Map();
-
-function numberFormat(fractionDigits, signed, minimumDigits) {
-  const key = `${fractionDigits}:${signed}:${minimumDigits}`;
-  if (!numberFormats.has(key)) {
-    numberFormats.set(
-      key,
-      new Intl.NumberFormat(LOCALE, {
-        minimumFractionDigits: minimumDigits,
-        maximumFractionDigits: fractionDigits,
-        signDisplay: signed ? "exceptZero" : "auto",
-      }),
-    );
-  }
-  return numberFormats.get(key);
-}
-
-function isMissing(value) {
-  return value === null || value === undefined || value === "";
-}
-
-function priceDigits(value) {
-  // Cheap coins need more decimals; decided from the string so no float comparison is needed.
-  const integerPart = value.replace("-", "").split(".")[0].replace(/^0+/, "");
-  if (integerPart.length >= 4) return 2;
-  if (integerPart.length >= 1) return 4;
-  return 6;
-}
-
-function formatNumber(
-  value,
-  fractionDigits,
-  signed = false,
-  minimumDigits = Math.min(2, fractionDigits),
-) {
-  if (isMissing(value)) return MISSING;
-  const number = Number(value);
-  if (!Number.isFinite(number)) return MISSING;
-  return numberFormat(fractionDigits, signed, minimumDigits).format(number);
-}
-
-// Decimals of the pair's Binance tick size (prices) or step size (quantities); null while
-// /api/markets/meta has not loaded or Binance did not say, so callers keep their own rule.
-function priceDecimals(symbol) {
-  const decimals = state.precision.get(symbol)?.price_decimals;
-  return Number.isInteger(decimals) ? decimals : null;
-}
-
-function quantityDecimals(symbol) {
-  const decimals = state.precision.get(symbol)?.quantity_decimals;
-  return Number.isInteger(decimals) ? decimals : null;
-}
-
-function formatPrice(value, signed = false, symbol = null) {
-  if (isMissing(value)) return MISSING;
-  const decimals = priceDecimals(symbol);
-  if (decimals === null) return formatNumber(value, priceDigits(value), signed);
-  return formatNumber(value, decimals, signed, decimals);
-}
-
-function formatQuantity(value, symbol) {
-  const decimals = quantityDecimals(symbol);
-  if (decimals === null) return formatNumber(value, 2);
-  return formatNumber(value, decimals, false, decimals);
-}
-
-function formatPercent(value) {
-  const formatted = formatNumber(value, 2, true);
-  return formatted === MISSING ? MISSING : `${formatted}%`;
-}
-
-function direction(value) {
-  if (isMissing(value) || /^-?0*\.?0*$/.test(value)) return null;
-  return value.startsWith("-") ? "negative" : "positive";
-}
-
-function formatTime(ms) {
-  return new Date(ms).toLocaleTimeString(LOCALE, { hour12: false });
-}
-
-const relativeTimeFormat = createRelativeTimeFormat();
-
-function createRelativeTimeFormat() {
-  try {
-    return new Intl.RelativeTimeFormat("sr-Latn", { style: "narrow", numeric: "always" });
-  } catch {
-    return null;
-  }
-}
-
-const RELATIVE_FALLBACK_UNITS = { second: "s", minute: "min", hour: "h", day: "d" };
-
-function formatRelative(elapsedMs) {
-  // A browser clock slightly behind the server would otherwise show "in 2 s".
-  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
-  let value = seconds;
-  let unit = "second";
-  if (seconds >= 86400) {
-    value = Math.floor(seconds / 86400);
-    unit = "day";
-  } else if (seconds >= 3600) {
-    value = Math.floor(seconds / 3600);
-    unit = "hour";
-  } else if (seconds >= 60) {
-    value = Math.floor(seconds / 60);
-    unit = "minute";
-  }
-  // -value keeps 0 in the past ("pre 0 s"), not the future ("za 0 s").
-  if (relativeTimeFormat) return relativeTimeFormat.format(-value, unit);
-  return `pre ${value} ${RELATIVE_FALLBACK_UNITS[unit]}`;
-}
-
-// ---------- Rendering ----------
-
-function setCell(container, field, text, signValue) {
-  const cell = container.querySelector(`[data-field="${field}"]`);
-  if (!cell) return null;
-  const changed = cell.textContent !== text;
-  cell.textContent = text;
-  if (signValue !== undefined) {
-    const sign = direction(signValue);
-    cell.classList.toggle("positive", sign === "positive");
-    cell.classList.toggle("negative", sign === "negative");
-  }
-  return changed ? cell : null;
-}
-
-function flash(element) {
-  element.classList.remove("flash");
-  // Reading offsetWidth restarts the animation when prices change faster than 600 ms.
-  void element.offsetWidth;
-  element.classList.add("flash");
-}
 
 function renderRow(market) {
   const row = rows.get(market.symbol);
@@ -271,15 +109,11 @@ function renderRow(market) {
   renderWatchlistPrice(market.symbol);
   renderStatus(market.symbol);
   renderPriceAge(market.symbol);
-  updateLastUpdate(market.updated_at);
   state.sortDirty = true;
 }
 
 function renderSpread(row, market) {
-  const spreadText = isMissing(market.spread_percent)
-    ? MISSING
-    : `${formatNumber(market.spread_percent, 3)}%`;
-  setCell(row, "spread_percent", spreadText);
+  setCell(row, "spread_percent", formatSpreadPercent(market.spread_percent));
   const cell = row.querySelector('[data-field="spread_percent"]');
   const high = market.high_spread === true;
   cell.classList.toggle("spread-high", high);
@@ -291,20 +125,8 @@ function renderSpread(row, market) {
 }
 
 function rowStatus(symbol) {
-  const entry = state.markets.get(symbol);
-  if (!entry || isMissing(entry.market.last_price)) return "no-data";
-  if (
-    state.socketState !== "open" ||
-    !exchangeDataFlowing() ||
-    state.liveDataAtMs === null ||
-    Date.now() - state.liveDataAtMs > STALE_AFTER_MS
-  ) {
-    return "stale";
-  }
-  return "live";
+  return marketSocket.freshness(state.markets.get(symbol)?.market);
 }
-
-const STATUS_LABELS = { live: "Uživo", stale: "Zastarelo", "no-data": "Nema podataka" };
 
 function renderStatus(symbol) {
   const row = rows.get(symbol);
@@ -323,39 +145,6 @@ function renderStatus(symbol) {
   watchlistItem(symbol)?.classList.toggle("is-stale", stale);
 }
 
-function inRestFallback() {
-  return state.exchangeStatus !== "connected" && state.priceSource === "rest";
-}
-
-function exchangeDataFlowing() {
-  return state.exchangeStatus === "connected" || inRestFallback();
-}
-
-function markLiveData() {
-  state.liveDataAtMs = Date.now();
-}
-
-function markAllStale() {
-  state.liveDataAtMs = null;
-  for (const symbol of rows.keys()) renderStatus(symbol);
-}
-
-function updateLastUpdate(updatedAt) {
-  if (isMissing(updatedAt)) return;
-  const ms = Date.parse(updatedAt);
-  if (Number.isNaN(ms) || (state.lastUpdateMs !== null && ms <= state.lastUpdateMs)) return;
-  state.lastUpdateMs = ms;
-  renderLastUpdate();
-}
-
-function renderLastUpdate() {
-  const ms = state.lastUpdateMs;
-  const old = ms !== null && Date.now() - ms > STALE_AFTER_MS;
-  elements.lastUpdate.textContent =
-    ms === null ? MISSING : `${formatTime(ms)} (${formatRelative(Date.now() - ms)})`;
-  elements.lastUpdate.classList.toggle("is-old", old);
-}
-
 function renderPriceAge(symbol) {
   const cell = rows.get(symbol).querySelector('[data-field="last_price"]');
   const updatedAt = state.markets.get(symbol)?.market.updated_at;
@@ -366,54 +155,13 @@ function renderPriceAge(symbol) {
   cell.title = `${age}\n${COPY_HINT}`;
 }
 
-function renderIndicator() {
-  let kind = "connecting";
-  let label = "Povezivanje…";
-  if (state.socketState === "closed" || state.exchangeStatus === "stopped") {
-    kind = "disconnected";
-    label = "Prekinuto";
-  } else if (state.socketState === "open" && state.exchangeStatus === "connected") {
-    kind = "live";
-    label = "Uživo";
-  } else if (state.socketState === "open" && inRestFallback()) {
-    kind = "fallback";
-    label = "Rezervni režim – cene na 10 s";
-  }
-  elements.indicator.className = `indicator indicator-${kind}`;
-  elements.indicatorLabel.textContent = label;
-  renderFavicon(kind);
-  renderChartStale();
-}
-
-// Same colors as the indicator dot, read from the stylesheet so they stay in one place.
-const FAVICON_COLOR_VARS = {
-  live: "--green",
-  connecting: "--yellow",
-  fallback: "--yellow",
-  disconnected: "--red",
-};
-
-function renderFavicon(kind) {
-  const link = elements.favicon;
-  // renderIndicator runs on every status heartbeat; only touch the <link> on a real change.
-  if (!link || link.dataset.kind === kind) return;
-  link.dataset.kind = kind;
-  const color = getComputedStyle(document.documentElement)
-    .getPropertyValue(FAVICON_COLOR_VARS[kind])
-    .trim();
-  const svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
-    `<circle cx="16" cy="16" r="15" fill="${color}"/>` +
-    '<text x="16" y="22" font-family="Arial,sans-serif" font-size="18" font-weight="700" ' +
-    'fill="#0d1117" text-anchor="middle">C</text></svg>';
-  link.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+function renderAllStatuses() {
+  for (const symbol of rows.keys()) renderStatus(symbol);
 }
 
 function renderChartStale() {
-  const exchangeDown = state.exchangeStatus !== null && !exchangeDataFlowing();
   const stale =
-    state.socketState === "closed" ||
-    exchangeDown ||
+    marketSocket.connectionDown() ||
     (state.selectedSymbol !== null && rowStatus(state.selectedSymbol) === "stale");
   chartPanel.setStale(stale);
 }
@@ -436,7 +184,6 @@ function selectPair(symbol) {
 // ?pair=ETHEUR&interval=15m mirrors the chart, so the address can be shared or bookmarked.
 const URL_PAIR_PARAM = "pair";
 const URL_INTERVAL_PARAM = "interval";
-const COPY_LINK_TEXT = "Kopiraj link";
 
 // Accepts "ethEUR" and "ETH-EUR"; null unless the server lists the pair.
 function pairFromUrl(params) {
@@ -444,13 +191,6 @@ function pairFromUrl(params) {
   if (value === null) return null;
   const symbol = value.trim().toUpperCase().replace("-", "");
   return rows.has(symbol) ? symbol : null;
-}
-
-function intervalFromUrl(params) {
-  const value = params.get(URL_INTERVAL_PARAM);
-  if (value === null) return null;
-  const interval = value.trim().toLowerCase();
-  return Object.values(INTERVAL_KEYS).includes(interval) ? interval : null;
 }
 
 // replaceState, not pushState: picking pairs must not fill the browser history. Other query
@@ -469,43 +209,12 @@ function writeChartUrl() {
 // The URL wins over the default pair and interval; there is no saved choice to fall back on.
 function applyChartUrl() {
   const params = new URLSearchParams(window.location.search);
-  const interval = intervalFromUrl(params);
+  const interval = chartPanel.intervalFromUrl(params);
   // Before selectPair, so the chart loads its history only once.
   if (interval !== null) chartPanel.selectInterval(interval);
   const symbol = pairFromUrl(params) ?? rows.keys().next().value;
   if (symbol !== undefined) selectPair(symbol);
   writeChartUrl();
-}
-
-async function copyChartLink() {
-  clearTimeout(Number(elements.copyLink.dataset.copyTimer));
-  try {
-    await navigator.clipboard.writeText(window.location.href);
-    elements.copyLink.textContent = "Link kopiran";
-  } catch (error) {
-    console.warn("Could not copy the chart link", error);
-    elements.copyLink.textContent = "Kopiranje nije uspelo";
-  }
-  elements.copyLink.dataset.copyTimer = String(
-    setTimeout(() => {
-      elements.copyLink.textContent = COPY_LINK_TEXT;
-    }, COPY_LABEL_MS),
-  );
-}
-
-function setExchangeStatus(status, priceSource = "ws") {
-  state.exchangeStatus = status;
-  state.priceSource = priceSource;
-  elements.exchangeBanner.hidden = status !== "reconnecting";
-  if (inRestFallback()) {
-    // The server sends this status after every successful REST round, as a heartbeat.
-    markLiveData();
-    for (const symbol of rows.keys()) renderStatus(symbol);
-  } else if (status !== "connected") {
-    // Without a live exchange connection no price on screen is current.
-    markAllStale();
-  }
-  renderIndicator();
 }
 
 // ---------- Watchlist ----------
@@ -635,17 +344,7 @@ async function toggleWatch(symbol) {
 // ---------- Precision ----------
 
 async function loadMarketMeta() {
-  let metas;
-  try {
-    const response = await fetch("/api/markets/meta");
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    metas = await response.json();
-  } catch (error) {
-    // Display only: the formatting guessed from the values keeps working without it.
-    console.warn("Could not load pair precision; using the default formatting", error);
-    return;
-  }
-  for (const meta of metas) state.precision.set(meta.symbol, meta);
+  if (!(await loadPrecision())) return;
   // Redraws what is already on screen without flashing it as a price change; everything
   // drawn after this uses the new decimals anyway.
   for (const { market } of state.markets.values()) renderRow(market);
@@ -680,9 +379,6 @@ function handleAlertTriggered(alert) {
 
 function handleSnapshot(data) {
   elements.loading.hidden = true;
-  setExchangeStatus(data.connection_status, data.price_source);
-  // The server's freshness follows its exchange connection, so one live market means all are.
-  if (data.markets.some((market) => market.freshness === "live")) markLiveData();
   for (const market of data.markets) renderRow(market);
 }
 
@@ -698,15 +394,10 @@ function handleMessage(message) {
       notifyPricesChanged();
       break;
     case "ticker":
-      markLiveData();
       renderRow(message.data);
       notifyPricesChanged();
       break;
-    case "status":
-      setExchangeStatus(message.data.connection_status, message.data.price_source);
-      break;
     case "kline":
-      markLiveData();
       chartPanel.handleKline(message.data);
       break;
     case "note_created":
@@ -730,43 +421,6 @@ function handleMessage(message) {
     default:
       break;
   }
-}
-
-function connect() {
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const socket = new WebSocket(`${protocol}//${location.host}/ws/market`);
-
-  socket.addEventListener("open", () => {
-    state.socketState = "open";
-    state.reconnectDelayMs = RECONNECT_INITIAL_DELAY_MS;
-    elements.serverBanner.hidden = true;
-    renderIndicator();
-    orderBookPanel.connected((payload) => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
-    });
-    pairMetaPanel.connected();
-  });
-
-  socket.addEventListener("message", (event) => {
-    let message;
-    try {
-      message = JSON.parse(event.data);
-    } catch (error) {
-      console.warn("Ignoring malformed message from /ws/market", error);
-      return;
-    }
-    handleMessage(message);
-  });
-
-  socket.addEventListener("close", () => {
-    state.socketState = "closed";
-    elements.serverBanner.hidden = false;
-    markAllStale();
-    renderIndicator();
-    orderBookPanel.disconnected();
-    setTimeout(connect, state.reconnectDelayMs);
-    state.reconnectDelayMs = Math.min(state.reconnectDelayMs * 2, RECONNECT_MAX_DELAY_MS);
-  });
 }
 
 // ---------- Sorting ----------
@@ -1029,17 +683,25 @@ setInterval(() => {
     renderStatus(symbol);
     renderPriceAge(symbol);
   }
-  renderLastUpdate();
   renderChartStale();
   maybeResort();
 }, 1000);
 chartPanel.onIntervalChange(writeChartUrl);
-elements.copyLink.addEventListener("click", copyChartLink);
 applyChartUrl();
 loadSort();
 renderSortHeaders();
 pairMetaPanel.init({ rows, displaySymbol, onFilterChange: applyFilter });
 loadWatchlist();
 loadMarketMeta();
-renderIndicator();
-connect();
+marketSocket.start({
+  onMessage: handleMessage,
+  onOpen(send) {
+    orderBookPanel.connected(send);
+    pairMetaPanel.connected();
+  },
+  onClose: () => orderBookPanel.disconnected(),
+  onStatusChange() {
+    renderAllStatuses();
+    renderChartStale();
+  },
+});

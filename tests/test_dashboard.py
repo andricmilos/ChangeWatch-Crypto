@@ -80,8 +80,11 @@ def test_dashboard_has_calculator_panel(client):
         ("/static/js/app.js", "javascript"),
         ("/static/js/chart.js", "javascript"),
         ("/static/js/converter.js", "javascript"),
+        ("/static/js/format.js", "javascript"),
         ("/static/js/orderbook.js", "javascript"),
+        ("/static/js/pair.js", "javascript"),
         ("/static/js/pairmeta.js", "javascript"),
+        ("/static/js/ws.js", "javascript"),
         ("/static/css/style.css", "text/css"),
     ],
 )
@@ -164,3 +167,31 @@ def test_pairmeta_script_loads_before_app_script(client):
     pairmeta_script = html.index('<script src="/static/js/pairmeta.js"></script>')
     app_script = html.index('<script src="/static/js/app.js"></script>')
     assert pairmeta_script < app_script
+
+
+def test_shared_scripts_load_before_page_scripts(client):
+    html = client.get("/").text
+
+    format_script = html.index('<script src="/static/js/format.js"></script>')
+    ws_script = html.index('<script src="/static/js/ws.js"></script>')
+    chart_script = html.index('<script src="/static/js/chart.js"></script>')
+    app_script = html.index('<script src="/static/js/app.js"></script>')
+    converter_script = html.index('<script src="/static/js/converter.js"></script>')
+    assert format_script < ws_script < chart_script < app_script < converter_script
+
+
+def test_dashboard_keeps_connection_status_and_banners(client):
+    html = client.get("/").text
+
+    assert 'id="connection-indicator"' in html
+    assert 'id="last-update"' in html
+    assert 'id="banner-server"' in html
+    assert 'id="banner-exchange"' in html
+    assert 'id="favicon"' in html
+    assert "<title>ChangeWatch Crypto</title>" in html
+
+
+def test_dashboard_orderbook_explains_price_click(client):
+    html = client.get("/").text
+
+    assert "Klikni na cenu da je upišeš kao ciljnu cenu novog alerta." in html
