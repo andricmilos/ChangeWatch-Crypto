@@ -666,6 +666,11 @@ elements.onlyWatchlist.addEventListener("change", applyFilter);
 elements.marketsEmptyClear.addEventListener("click", clearFilters);
 for (const [symbol, row] of rows) {
   row.addEventListener("click", () => selectPair(symbol));
+  row.querySelector(".pair-name").addEventListener("click", (event) => {
+    // The name is a real link to /pair/...: the browser opens it (Cmd+click in a new tab), and
+    // the row must not also switch the dashboard's chart.
+    event.stopPropagation();
+  });
   row.querySelector(".star").addEventListener("click", (event) => {
     // The star must not also open the chart for this row.
     event.stopPropagation();

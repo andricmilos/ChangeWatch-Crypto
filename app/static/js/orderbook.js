@@ -80,10 +80,6 @@ const orderBookPanel = (() => {
     return Math.min(fraction.replace(/0+$/, "").length, MAX_DIGITS);
   }
 
-  function trimZeros(value) {
-    return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
-  }
-
   // ---------- Rendering ----------
 
   function highlight(element) {

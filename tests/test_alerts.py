@@ -627,3 +627,112 @@ def test_invalid_partial_form_shows_error_and_creates_nothing(client):
 
     assert "Neispravan alert" in response.text
     assert client.get("/api/alerts").json() == []
+
+
+def alert_ids_in(html: str) -> list[int]:
+    return [int(part.split('"')[0]) for part in html.split('data-alert-id="')[1:]]
+
+
+async def test_partial_for_one_pair_lists_only_that_pair(client, session_factory):
+    btc = await add_fired_alert(session_factory, None, is_active=True)
+    await add_fired_alert(session_factory, None, symbol="ETHEUR", is_active=True)
+
+    response = client.get("/partials/alerts", params={"pair": "btc-eur"})
+
+    assert response.status_code == 200
+    assert alert_ids_in(response.text) == [btc]
+    assert "Poslednji okinuti" in response.text
+
+
+async def test_partial_for_one_pair_shows_latest_ten_fired(client, session_factory):
+    # Inserted newest first, so the id order differs from the triggered_at order.
+    fired = [
+        await add_fired_alert(session_factory, START - timedelta(minutes=minutes))
+        for minutes in range(12)
+    ]
+
+    html = client.get("/partials/alerts", params={"pair": "BTCEUR"}).text
+
+    assert alert_ids_in(html) == fired[:10]
+
+
+def test_partial_for_unknown_pair_is_404(client):
+    assert client.get("/partials/alerts", params={"pair": "XRPEUR"}).status_code == 404
+
+
+async def test_partial_buttons_keep_the_pair_scope(client, session_factory):
+    alert_id = await add_fired_alert(session_factory, None, is_active=True)
+
+    scoped = client.get("/partials/alerts", params={"pair": "BTCEUR"}).text
+    full = client.get("/partials/alerts").text
+
+    assert f'hx-post="/partials/alerts/{alert_id}/toggle?pair=BTCEUR"' in scoped
+    assert f'hx-delete="/partials/alerts/{alert_id}?pair=BTCEUR"' in scoped
+    assert f'hx-post="/partials/alerts/{alert_id}/toggle"' in full
+    assert f'hx-delete="/partials/alerts/{alert_id}"' in full
+
+
+def test_create_through_partial_for_one_pair_returns_that_pair(client, alert_service):
+    client.post(
+        "/partials/alerts",
+        data={"symbol": "ETHEUR", "condition": "above", "target_price": "3000"},
+    )
+
+    response = client.post(
+        "/partials/alerts?pair=BTCEUR",
+        data={"symbol": "BTCEUR", "condition": "below", "target_price": "60000"},
+    )
+
+    assert response.status_code == 200
+    assert "60000 EUR" in response.text
+    assert "ETH/EUR" not in response.text
+    assert len(alert_service.active_alerts("BTCEUR")) == 1
+
+
+async def test_toggle_through_partial_turns_alert_off_and_on(client, alert_service):
+    alert = await create_alert(alert_service, "75000", "above")
+
+    off = client.post(f"/partials/alerts/{alert.id}/toggle")
+    assert off.status_code == 200
+    assert "Isključeni" in off.text
+    assert alert_service.active_alerts("BTCEUR") == []
+
+    client.post(f"/partials/alerts/{alert.id}/toggle")
+    assert [a.id for a in alert_service.active_alerts("BTCEUR")] == [alert.id]
+
+
+async def test_toggle_through_partial_rearms_a_fired_alert(client, alert_service, session_factory):
+    alert_id = await add_fired_alert(session_factory, START)
+
+    client.post(f"/partials/alerts/{alert_id}/toggle")
+
+    alert = await load_alert(session_factory, alert_id)
+    assert alert.is_active is True
+    assert alert.triggered_at is None
+
+
+async def test_toggle_through_partial_respects_active_limit(
+    client, alert_service, session_factory, monkeypatch
+):
+    alert_id = await add_fired_alert(session_factory, None)
+    monkeypatch.setattr(alert_service, "active_count", lambda: 50)
+
+    response = client.post(f"/partials/alerts/{alert_id}/toggle")
+
+    assert "Najviše 50 aktivnih alerta" in response.text
+    assert (await load_alert(session_factory, alert_id)).is_active is False
+
+
+async def test_delete_through_partial(client, alert_service):
+    alert = await create_alert(alert_service, "75000", "above")
+
+    response = client.delete(f"/partials/alerts/{alert.id}?pair=BTCEUR")
+
+    assert response.status_code == 200
+    assert "Nema aktivnih alerta." in response.text
+    assert client.get("/api/alerts").json() == []
+
+
+def test_toggle_and_delete_of_missing_alert_just_render_the_list(client):
+    assert client.post("/partials/alerts/999/toggle").status_code == 200
+    assert client.delete("/partials/alerts/999").status_code == 200

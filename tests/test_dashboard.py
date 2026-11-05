@@ -195,3 +195,10 @@ def test_dashboard_orderbook_explains_price_click(client):
     html = client.get("/").text
 
     assert "Klikni na cenu da je upišeš kao ciljnu cenu novog alerta." in html
+
+
+def test_pair_names_in_table_link_to_pair_page(client):
+    html = client.get("/").text
+
+    assert '<a class="pair-name" href="/pair/BTCEUR">BTC/EUR</a>' in html
+    assert '<a class="pair-name" href="/pair/ADAEUR">ADA/EUR</a>' in html

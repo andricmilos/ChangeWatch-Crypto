@@ -32,6 +32,7 @@ from app.services.converter import EUR, base_assets
 from app.services.exchange_client import (
     BinanceRestClient,
     ExchangeUnavailableError,
+    quote_asset,
     to_display_symbol,
 )
 from app.services.history_service import HistoryService
@@ -225,8 +226,20 @@ async def pair_page(request: Request, symbol: str, service: MarketService) -> Re
         # One address per pair, so links and bookmarks all point to /pair/BTCEUR.
         url = request.url.replace(path=f"/pair/{normalized}")
         return RedirectResponse(str(url), status_code=301)
-    pair = {"symbol": normalized, "display_symbol": to_display_symbol(normalized)}
-    return templates.TemplateResponse(request, "pair.html", {"pair": pair})
+    pair = {
+        "symbol": normalized,
+        "display_symbol": to_display_symbol(normalized),
+        "quote_asset": quote_asset(normalized) or EUR,
+    }
+    # ← and → walk the pairs in the dashboard's default order and stop at either end.
+    symbols = service.settings.supported_symbols
+    index = symbols.index(normalized)
+    context = {
+        "pair": pair,
+        "previous_symbol": symbols[index - 1] if index > 0 else None,
+        "next_symbol": symbols[index + 1] if index + 1 < len(symbols) else None,
+    }
+    return templates.TemplateResponse(request, "pair.html", context)
 
 
 # Hidden from /docs: it is for the deploy platform's health checks, not for API clients.

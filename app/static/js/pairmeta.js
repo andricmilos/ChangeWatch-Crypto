@@ -11,6 +11,9 @@
 //   for the WebSocket; the later message is then a no-op.
 // - Tag names and note text are only ever set via textContent; colors are CSS classes.
 // - app.js owns the rows and the other filters: it calls init() and asks matches(symbol).
+// - The pair page (pair.js) passes its tags-and-note section as the one "row". A row with a
+//   .pair-note-text element shows every tag and the note itself instead of the 🗒 icon, and
+//   without the table's filter and tag manager the chips are plain labels.
 
 const pairMetaPanel = (() => {
   const COLORS = ["green", "red", "yellow", "blue", "purple", "orange", "teal", "gray"];
@@ -38,8 +41,8 @@ const pairMetaPanel = (() => {
     ["Input should be", "Izabrana boja nije podržana."],
   ];
 
+  // The table, filter and manager exist only on the dashboard; on the pair page they are null.
   const elements = {
-    section: document.querySelector(".panel-markets"),
     body: document.getElementById("markets-body"),
     tableWrap: document.querySelector(".panel-markets .table-wrap"),
     filter: document.getElementById("tag-filter"),
@@ -64,7 +67,9 @@ const pairMetaPanel = (() => {
     panelError: document.getElementById("pair-panel-error"),
     panelCancel: document.getElementById("pair-panel-cancel"),
   };
-  elements.table = elements.body.closest("table");
+  elements.table = elements.body?.closest("table") ?? null;
+  // The floating tooltip and panel are positioned inside the panel that holds them.
+  elements.section = elements.panel.parentElement;
 
   const state = {
     rows: new Map(),
@@ -176,6 +181,8 @@ const pairMetaPanel = (() => {
   }
 
   function createChip(tag, onClick) {
+    // Without the table there is nothing to filter, so a chip is only a label.
+    if (elements.filter === null) onClick = null;
     const chip = document.createElement(onClick ? "button" : "span");
     chip.className = `tag-chip ${colorClass(tag.color)}`;
     chip.textContent = tag.name;
@@ -329,8 +336,8 @@ const pairMetaPanel = (() => {
       console.warn("Could not load the notes config; tags stay read-only", error);
       state.writeEnabled = false;
     }
-    elements.table.classList.toggle("meta-readonly", !state.writeEnabled);
-    elements.manageButton.hidden = !state.writeEnabled;
+    elements.table?.classList.toggle("meta-readonly", !state.writeEnabled);
+    if (elements.manageButton) elements.manageButton.hidden = !state.writeEnabled;
     for (const row of state.rows.values()) {
       row.querySelector(".row-menu").hidden = !state.writeEnabled;
     }
@@ -344,13 +351,18 @@ const pairMetaPanel = (() => {
 
   function renderRow(symbol) {
     const row = state.rows.get(symbol);
+    const noteText = row.querySelector(".pair-note-text");
     const tags = pairTags(symbol);
-    const visible = tags.slice(0, MAX_VISIBLE_TAGS);
+    const visible = noteText ? tags : tags.slice(0, MAX_VISIBLE_TAGS);
     const chips = visible.map((tag) => createChip(tag, toggleFilterTag));
     if (tags.length > visible.length) chips.push(createMoreChip(symbol, tags.length - visible.length));
     row.querySelector(".pair-tags").replaceChildren(...chips);
 
     const note = state.metas.get(symbol)?.note ?? null;
+    if (noteText) {
+      renderNoteDetail(row, note, tags.length);
+      return;
+    }
     const icon = row.querySelector(".pair-note-icon");
     icon.hidden = note === null;
     icon.setAttribute("aria-label", `Beleška o paru ${state.displaySymbol(symbol)}`);
@@ -362,6 +374,24 @@ const pairMetaPanel = (() => {
     } else if (trigger && row.contains(trigger)) {
       fillTooltip(trigger);
     }
+  }
+
+  // The pair page shows the note in full, not behind the 🗒 icon.
+  function renderNoteDetail(row, note, tagCount) {
+    const text = row.querySelector(".pair-note-text");
+    const time = row.querySelector(".pair-note-time");
+    text.hidden = note === null;
+    time.hidden = note === null;
+    text.textContent = note?.text ?? "";
+    time.textContent = note === null ? "" : noteUpdatedText(note);
+    const empty = row.querySelector(".pair-meta-empty");
+    // Until the lists arrive "no tags" might not be true yet.
+    empty.hidden = !state.metasKnown || note !== null || tagCount > 0;
+  }
+
+  function noteUpdatedText(note) {
+    const updatedAt = new Date(note.updated_at);
+    return Number.isNaN(updatedAt.getTime()) ? "" : `Izmenjeno ${updatedAt.toLocaleString(DATE_LOCALE)}`;
   }
 
   function renderAllRows() {
@@ -383,7 +413,7 @@ const pairMetaPanel = (() => {
   // ---------- Tooltip (all tags, pair note) ----------
 
   function fillTooltip(trigger) {
-    const symbol = trigger.closest("tr").dataset.symbol;
+    const symbol = trigger.closest("[data-symbol]").dataset.symbol;
     if (trigger.classList.contains("tag-more")) {
       const chips = pairTags(symbol).map((tag) =>
         createChip(tag, (clicked) => {
@@ -407,10 +437,7 @@ const pairMetaPanel = (() => {
     text.textContent = note.text;
     const updated = document.createElement("p");
     updated.className = "note-muted pair-tooltip-time";
-    const updatedAt = new Date(note.updated_at);
-    updated.textContent = Number.isNaN(updatedAt.getTime())
-      ? ""
-      : `Izmenjeno ${updatedAt.toLocaleString(DATE_LOCALE)}`;
+    updated.textContent = noteUpdatedText(note);
     elements.tooltip.replaceChildren(text, updated);
   }
 
@@ -520,6 +547,7 @@ const pairMetaPanel = (() => {
   }
 
   function renderFilter() {
+    if (elements.filter === null) return;
     const tag = state.filterTagId === null ? undefined : state.tags.get(state.filterTagId);
     elements.filter.hidden = tag === undefined;
     if (tag === undefined) return;
@@ -743,6 +771,7 @@ const pairMetaPanel = (() => {
   // ---------- Tag manager ----------
 
   function toggleManager(open) {
+    if (elements.manager === null) return;
     elements.manager.hidden = !open;
     elements.manageButton.setAttribute("aria-expanded", String(open));
     if (!open) {
@@ -844,7 +873,7 @@ const pairMetaPanel = (() => {
   }
 
   function renderManager() {
-    if (elements.manager.hidden) return;
+    if (elements.manager === null || elements.manager.hidden) return;
     keepFocus(() => {
       elements.managerList.replaceChildren(...[...state.tags.values()].map(createManagerItem));
     });
@@ -917,7 +946,8 @@ const pairMetaPanel = (() => {
     state.displaySymbol = displaySymbol;
     state.onFilterChange = onFilterChange;
     for (const [symbol, row] of rows) {
-      attachTooltip(row.querySelector(".pair-note-icon"));
+      const icon = row.querySelector(".pair-note-icon");
+      if (icon) attachTooltip(icon);
       const menu = row.querySelector(".row-menu");
       menu.addEventListener("click", (event) => {
         // The menu must not also select the row for the chart.
@@ -925,25 +955,25 @@ const pairMetaPanel = (() => {
         openPanel(symbol, menu);
       });
     }
-    loadFilter();
+    if (elements.filter !== null) loadFilter();
     load();
     loadConfig();
   }
 
-  // Called by app.js whenever the socket opens; the first open follows the initial load.
+  // Called by app.js and pair.js whenever the socket opens; the first open follows the initial load.
   function connected() {
     if (state.connectedBefore) load();
     state.connectedBefore = true;
   }
 
-  elements.filterClear.addEventListener("click", () => setFilter(null));
-  elements.manageButton.addEventListener("click", () => toggleManager(elements.manager.hidden));
+  elements.filterClear?.addEventListener("click", () => setFilter(null));
+  elements.manageButton?.addEventListener("click", () => toggleManager(elements.manager.hidden));
   elements.panel.addEventListener("submit", savePanel);
   elements.panel.addEventListener("keydown", handlePanelKeydown);
   elements.panelCancel.addEventListener("click", () => closePanel());
   elements.panelNewAdd.addEventListener("click", createTag);
   elements.panelNote.addEventListener("input", renderNoteCount);
-  elements.tableWrap.addEventListener("scroll", hideTooltip, { passive: true });
+  elements.tableWrap?.addEventListener("scroll", hideTooltip, { passive: true });
   window.addEventListener("resize", () => {
     hideTooltip();
     if (state.panel) placeBelow(elements.panel, state.panel.button, true);

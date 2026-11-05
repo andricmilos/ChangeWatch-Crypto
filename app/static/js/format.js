@@ -97,6 +97,11 @@ function direction(value) {
   return value.startsWith("-") ? "negative" : "positive";
 }
 
+// "72309.75000000" -> "72309.75": the exact server string, as a user would type it.
+function trimZeros(value) {
+  return value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
+}
+
 function formatTime(ms) {
   return new Date(ms).toLocaleTimeString(LOCALE, { hour12: false });
 }

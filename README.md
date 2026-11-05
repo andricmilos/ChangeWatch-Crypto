@@ -66,6 +66,29 @@ Pairs in the markets table can carry colored tags ("Dugoročno", "Rizično") and
 - Changes made in one browser appear in every open dashboard right away. On a read-only
   server (`NOTES_WRITE_ENABLED=false`) the edit controls are hidden.
 
+## Pair page
+
+![BTC/EUR pair page with chart, order book, alerts and tags](docs/images/pair-page.png)
+
+Every pair has its own page at `/pair/BTCEUR` (`btceur` and `BTC-EUR` redirect there). The pair
+name in the markets table is a real link to it, so Cmd+click (Ctrl+click) opens it in a new
+tab; clicking anywhere else in the row still shows the pair in the dashboard's chart.
+
+The page shows, all live over the same WebSocket as the dashboard:
+
+- the price, 24h change, bid/ask/spread, and 24-hour and 7-day statistics;
+- the chart (with `?interval=` in the address) and the order book of this pair;
+- "Alerti za BTC/EUR": the pair's active and switched-off alerts and its last 10 fired ones,
+  with "Isključi"/"Uključi" and "Obriši" (on the dashboard too). The form for a new alert has
+  the pair already chosen and shows the current price as a hint, not as a value. A fired alert
+  moves to "Poslednji okinuti" at once;
+- the pair's tags and note in full, edited with "Izmeni" in the same panel as "⋯" in the table;
+- the chart notes of the pair, newest first; clicking one moves the chart to that moment.
+
+← and → open the previous or next pair with the same chart interval, and "← Svi parovi" goes
+back to the dashboard. On a read-only server (`NOTES_WRITE_ENABLED=false`) the edit buttons
+for tags and notes are hidden, as on the dashboard.
+
 ## Event processing architecture
 
 ```text

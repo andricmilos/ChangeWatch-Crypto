@@ -50,8 +50,5 @@
     </div>
     <p id="imbalance-label" class="imbalance-label">—</p>
   </div>
-  {# Only where the page has the alert form that a click on a price fills in. #}
-  {% if alert_form | default(true) %}
   <p class="chart-note">Klikni na cenu da je upišeš kao ciljnu cenu novog alerta.</p>
-  {% endif %}
 </section>

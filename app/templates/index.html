@@ -66,7 +66,7 @@
               </td>
               <td class="pair">
                 <div class="pair-cell">
-                  <span class="pair-name">{{ pair.display_symbol }}</span>
+                  <a class="pair-name" href="/pair/{{ pair.symbol }}">{{ pair.display_symbol }}</a>
                   <button type="button" class="pair-note-icon" hidden>🗒</button>
                   <span class="pair-tags"></span>
                 </div>
@@ -100,38 +100,7 @@
           </tbody>
         </table>
       </div>
-      <div id="pair-tooltip" class="pair-tooltip" role="tooltip" hidden></div>
-      <form id="pair-panel" class="pair-panel" role="dialog" aria-labelledby="pair-panel-title"
-            hidden>
-        <h3 id="pair-panel-title" class="pair-panel-title"></h3>
-        <fieldset class="pair-panel-section">
-          <legend>Oznake <span id="pair-panel-tag-count" class="note-count"></span></legend>
-          <p id="pair-panel-no-tags" class="note-muted">Još nema oznaka.</p>
-          <ul id="pair-panel-tags" class="pair-panel-tags"></ul>
-        </fieldset>
-        <fieldset class="pair-panel-section">
-          <legend>Nova oznaka</legend>
-          <div class="pair-panel-row">
-            <input id="pair-panel-new-name" type="text" maxlength="20" autocomplete="off"
-                   placeholder="Ime oznake" aria-label="Ime nove oznake">
-            <button type="button" id="pair-panel-new-add" class="note-button"
-                    aria-label="Dodaj novu oznaku">Dodaj</button>
-          </div>
-          <div id="pair-panel-new-colors" class="tag-colors" role="radiogroup"
-               aria-label="Boja nove oznake"></div>
-        </fieldset>
-        <div class="pair-panel-section">
-          <label for="pair-panel-note" class="pair-panel-label">Beleška o paru</label>
-          <textarea id="pair-panel-note" rows="3" aria-describedby="pair-panel-note-count"></textarea>
-          <span id="pair-panel-note-count" class="note-count" aria-live="polite">0/500</span>
-        </div>
-        <p id="pair-panel-error" class="note-error" role="alert" hidden></p>
-        <div class="pair-panel-row pair-panel-actions">
-          <button type="submit" class="note-button" aria-label="Sačuvaj oznake i belešku">Sačuvaj</button>
-          <button type="button" id="pair-panel-cancel" class="note-button"
-                  aria-label="Otkaži izmene">Otkaži</button>
-        </div>
-      </form>
+      {% include "partials/pair_meta_panel.html" %}
     </section>
 
     {% include "partials/chart_panel.html" %}

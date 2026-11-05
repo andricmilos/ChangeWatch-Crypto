@@ -112,6 +112,10 @@ class AlertService:
         await self.load_active()
         return alert
 
+    async def get(self, alert_id: int) -> PriceAlert | None:
+        async with self.session_factory() as session:
+            return await session.get(PriceAlert, alert_id)
+
     async def update(self, alert_id: int, payload: AlertUpdate) -> PriceAlert | None:
         async with self.session_factory() as session:
             alert = await session.get(PriceAlert, alert_id)

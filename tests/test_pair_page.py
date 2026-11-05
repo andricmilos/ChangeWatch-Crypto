@@ -447,8 +447,47 @@ def test_pair_page_has_quote_stats_chart_and_orderbook(client):
     for interval in ["1m", "5m", "15m", "1h"]:
         assert f'data-interval="{interval}"' in html
     assert 'id="orderbook-table"' in html
-    # No alert form on this page, so a click on a book price has nothing to fill in.
-    assert "ciljnu cenu novog alerta" not in html
+    # The page has its own alert form, so a click on a book price fills it in.
+    assert "ciljnu cenu novog alerta" in html
+
+
+def test_pair_page_has_alerts_for_this_pair(client):
+    html = client.get("/pair/BTCEUR").text
+
+    assert 'hx-post="/partials/alerts?pair=BTCEUR"' in html
+    assert 'hx-get="/partials/alerts?pair=BTCEUR"' in html
+    assert '<input type="hidden" name="symbol" value="BTCEUR">' in html
+    # The live price is only a placeholder (set by pair.js); the field starts empty.
+    assert 'placeholder="Cena (EUR)"' in html
+    assert 'name="target_price" value=' not in html
+
+
+def test_pair_page_has_tags_and_note_section(client):
+    html = client.get("/pair/BTCEUR").text
+
+    assert 'class="panel pair-meta" data-symbol="BTCEUR"' in html
+    # The same "⋯" panel as in the markets table, hidden until /api/notes/config allows edits.
+    assert 'id="pair-panel"' in html
+    assert 'id="pair-tooltip"' in html
+    assert 'class="row-menu note-button"' in html
+    assert 'class="pair-note-text" hidden' in html
+
+
+def test_pair_page_has_chart_notes_list(client):
+    html = client.get("/pair/BTCEUR").text
+
+    assert 'id="notes-panel-list"' in html
+
+
+@pytest.mark.parametrize(
+    ("symbol", "previous", "next_"),
+    [("BTCEUR", "", "ETHEUR"), ("SOLEUR", "ETHEUR", "BNBEUR"), ("ADAEUR", "BNBEUR", "")],
+)
+def test_pair_page_knows_neighbouring_pairs(client, symbol, previous, next_):
+    html = client.get(f"/pair/{symbol}").text
+
+    assert f'data-previous="{previous}"' in html
+    assert f'data-next="{next_}"' in html
 
 
 def test_pair_page_loads_shared_scripts_then_its_own(client):
@@ -458,8 +497,12 @@ def test_pair_page_loads_shared_scripts_then_its_own(client):
     ws_script = html.index('<script src="/static/js/ws.js"></script>')
     chart_script = html.index('<script src="/static/js/chart.js"></script>')
     orderbook_script = html.index('<script src="/static/js/orderbook.js"></script>')
+    htmx_script = html.index("htmx.org@")
+    pairmeta_script = html.index('<script src="/static/js/pairmeta.js"></script>')
     pair_script = html.index('<script src="/static/js/pair.js"></script>')
     assert format_script < ws_script < chart_script < orderbook_script < pair_script
+    assert htmx_script < pair_script
+    assert pairmeta_script < pair_script
     assert "/static/js/app.js" not in html
 
 

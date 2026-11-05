@@ -12,7 +12,8 @@
     <section class="panel pair-header" aria-labelledby="pair-name">
       <a class="back-link" href="/">← Svi parovi</a>
       <div class="pair-title">
-        <h2 id="pair-name" data-symbol="{{ pair.symbol }}">{{ pair.display_symbol }}</h2>
+        <h2 id="pair-name" data-symbol="{{ pair.symbol }}" data-previous="{{ previous_symbol or '' }}"
+            data-next="{{ next_symbol or '' }}">{{ pair.display_symbol }}</h2>
         <span id="pair-status"><span class="status status-no-data">Nema podataka</span></span>
       </div>
       <p id="pair-loading" class="loading">Učitavanje cene…</p>
@@ -57,9 +58,42 @@
 
     {% include "partials/chart_panel.html" %}
 
-    {% with alert_form = false %}
     {% include "partials/orderbook_panel.html" %}
-    {% endwith %}
+
+    <section class="panel panel-alerts" aria-labelledby="pair-alerts-title">
+      <h2 id="pair-alerts-title">Alerti za {{ pair.display_symbol }}</h2>
+      <form class="alert-form" hx-post="/partials/alerts?pair={{ pair.symbol }}"
+            hx-target="#alerts-list">
+        <input type="hidden" name="symbol" value="{{ pair.symbol }}">
+        <select name="condition" aria-label="Uslov" required>
+          <option value="above">iznad</option>
+          <option value="below">ispod</option>
+        </select>
+        {# pair.js shows the live price as the placeholder; the field itself stays empty. #}
+        <input name="target_price" type="text" inputmode="decimal"
+               placeholder="Cena ({{ pair.quote_asset }})"
+               aria-label="Ciljna cena u {{ pair.quote_asset }}" autocomplete="off" required>
+        <button type="submit">Dodaj alert</button>
+      </form>
+      <div id="alerts-list" hx-get="/partials/alerts?pair={{ pair.symbol }}" hx-trigger="load">
+        <p class="alerts-empty">Učitavanje alerta…</p>
+      </div>
+    </section>
+
+    <section class="panel pair-meta" data-symbol="{{ pair.symbol }}"
+             aria-labelledby="pair-meta-title">
+      <div class="panel-header">
+        <h2 id="pair-meta-title">Oznake i beleška</h2>
+        <button type="button" class="row-menu note-button" aria-haspopup="dialog"
+                aria-expanded="false" aria-label="Izmeni oznake i belešku za {{ pair.display_symbol }}"
+                hidden>Izmeni</button>
+      </div>
+      <p class="pair-meta-empty note-muted">Nema oznaka ni beleške.</p>
+      <div class="pair-tags"></div>
+      <p class="pair-note-text" hidden></p>
+      <p class="pair-note-time note-muted" hidden></p>
+      {% include "partials/pair_meta_panel.html" %}
+    </section>
     {% else %}
     <section class="panel">
       <p><a class="back-link" href="/">← Svi parovi</a></p>
@@ -73,6 +107,8 @@
 {% block scripts %}
   {% if pair %}
   {% include "partials/live_scripts.html" %}
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script src="/static/js/pairmeta.js"></script>
   <script src="/static/js/pair.js"></script>
   {% endif %}
 {% endblock %}

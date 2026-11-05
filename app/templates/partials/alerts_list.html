@@ -1,4 +1,4 @@
-{% macro alert_item(alert) %}
+{% macro alert_item(alert, scope) %}
 <li class="alert-item" data-alert-id="{{ alert.id }}">
   <span class="pair">{{ alert.symbol | display_symbol }}</span>
   <span>{{ "iznad" if alert.condition == "above" else "ispod" }}</span>
@@ -8,15 +8,29 @@
     okinut na {{ alert.triggered_price }} {{ alert.symbol | quote_asset }}, {{ alert.triggered_at.strftime("%Y-%m-%d %H:%M:%S") }} UTC
   </span>
   {% endif %}
+  <span class="alert-actions">
+    <button type="button" class="note-button" hx-post="/partials/alerts/{{ alert.id }}/toggle{{ scope }}"
+            hx-target="#alerts-list"
+            aria-label="{{ 'Isključi' if alert.is_active else 'Uključi' }} alert {{ alert.symbol | display_symbol }} {{ alert.target_price }}">
+      {{ "Isključi" if alert.is_active else "Uključi" }}
+    </button>
+    <button type="button" class="note-button" hx-delete="/partials/alerts/{{ alert.id }}{{ scope }}"
+            hx-target="#alerts-list"
+            aria-label="Obriši alert {{ alert.symbol | display_symbol }} {{ alert.target_price }}">
+      Obriši
+    </button>
+  </span>
 </li>
 {% endmacro %}
+{# ?pair= keeps the answer limited to the pair page's own pair. #}
+{% set scope = "?pair=" ~ pair if pair else "" %}
 {% if error %}
 <p class="alerts-error" role="alert">{{ error }}</p>
 {% endif %}
 <h3>Aktivni</h3>
 {% if active %}
 <ul class="alerts">
-  {% for alert in active %}{{ alert_item(alert) }}{% endfor %}
+  {% for alert in active %}{{ alert_item(alert, scope) }}{% endfor %}
 </ul>
 {% else %}
 <p class="alerts-empty">Nema aktivnih alerta.</p>
@@ -24,13 +38,13 @@
 {% if disabled %}
 <h3>Isključeni</h3>
 <ul class="alerts alerts-disabled">
-  {% for alert in disabled %}{{ alert_item(alert) }}{% endfor %}
+  {% for alert in disabled %}{{ alert_item(alert, scope) }}{% endfor %}
 </ul>
 {% endif %}
-<h3>Okinuti</h3>
+<h3>{{ "Poslednji okinuti" if pair else "Okinuti" }}</h3>
 {% if triggered %}
 <ul class="alerts alerts-triggered">
-  {% for alert in triggered %}{{ alert_item(alert) }}{% endfor %}
+  {% for alert in triggered %}{{ alert_item(alert, scope) }}{% endfor %}
 </ul>
 {% else %}
 <p class="alerts-empty">Nijedan alert još nije okinut.</p>

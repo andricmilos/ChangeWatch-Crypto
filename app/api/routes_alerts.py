@@ -164,34 +164,57 @@ async def delete_alert(alert_id: int, alert_service: Alerts) -> Response:
     return Response(status_code=204)
 
 
+# The pair page shows only its own pair, and of the fired alerts only the latest ones.
+PAIR_TRIGGERED_LIMIT = 10
+# ?pair= limits the list to one pair; the form field "symbol" is the new alert's own pair.
+PairScope = Annotated[str | None, Query(alias="pair")]
+
+
+def scope_symbol(pair: str | None, service: MarketDataService) -> str | None:
+    return None if pair is None else normalize_symbol(pair, service.settings.supported_symbols)
+
+
 async def render_alerts_list(
-    request: Request, alert_service: AlertService, error: str | None = None
+    request: Request,
+    alert_service: AlertService,
+    error: str | None = None,
+    pair: str | None = None,
 ) -> HTMLResponse:
-    alerts = await alert_service.list_alerts()
+    alerts = await alert_service.list_alerts(symbol=pair)
+    triggered = [alert for alert in alerts if alert.triggered_at is not None]
+    if pair is not None:
+        triggered.sort(key=lambda alert: alert.triggered_at or EPOCH, reverse=True)
+        triggered = triggered[:PAIR_TRIGGERED_LIMIT]
     context = {
         "active": [alert for alert in alerts if alert.is_active],
-        "triggered": [alert for alert in alerts if alert.triggered_at is not None],
+        "triggered": triggered,
         "disabled": [
             alert for alert in alerts if not alert.is_active and alert.triggered_at is None
         ],
         "error": error,
+        "pair": pair,
     }
     return templates.TemplateResponse(request, "partials/alerts_list.html", context)
 
 
 @partials_router.get("/alerts", response_class=HTMLResponse)
-async def alerts_partial(request: Request, alert_service: Alerts) -> HTMLResponse:
-    return await render_alerts_list(request, alert_service)
+async def alerts_partial(
+    request: Request, alert_service: Alerts, service: MarketService, pair: PairScope = None
+) -> HTMLResponse:
+    return await render_alerts_list(request, alert_service, pair=scope_symbol(pair, service))
 
 
 @partials_router.post("/alerts", response_class=HTMLResponse, dependencies=RateLimited)
 async def create_alert_partial(
     request: Request,
     alert_service: Alerts,
+    service: MarketService,
     symbol: Annotated[str, Form()],
     condition: Annotated[str, Form()],
     target_price: Annotated[str, Form()],
+    pair: PairScope = None,
 ) -> HTMLResponse:
+    scope = scope_symbol(pair, service)
     try:
         payload = AlertCreate(symbol=symbol, condition=condition, target_price=target_price)
     except ValidationError:
@@ -202,8 +225,46 @@ async def create_alert_partial(
             alert_service,
             error="Neispravan alert: izaberi par i uslov i unesi cenu veću od 0 "
             "(najviše 8 decimala).",
+            pair=scope,
         )
     if alert_service.active_count() >= MAX_ACTIVE_ALERTS:
-        return await render_alerts_list(request, alert_service, error=TOO_MANY_ALERTS)
+        return await render_alerts_list(request, alert_service, error=TOO_MANY_ALERTS, pair=scope)
     await alert_service.create(payload)
-    return await render_alerts_list(request, alert_service)
+    return await render_alerts_list(request, alert_service, pair=scope)
+
+
+@partials_router.post(
+    "/alerts/{alert_id}/toggle", response_class=HTMLResponse, dependencies=RateLimited
+)
+async def toggle_alert_partial(
+    request: Request,
+    alert_id: int,
+    alert_service: Alerts,
+    service: MarketService,
+    pair: PairScope = None,
+) -> HTMLResponse:
+    """Turns an active alert off, or an inactive one (off or fired) back on."""
+    scope = scope_symbol(pair, service)
+    alert = await alert_service.get(alert_id)
+    # An alert deleted meanwhile (e.g. in another tab) is simply missing from the fresh list.
+    if alert is not None:
+        if not alert.is_active and alert_service.active_count() >= MAX_ACTIVE_ALERTS:
+            return await render_alerts_list(
+                request, alert_service, error=TOO_MANY_ALERTS, pair=scope
+            )
+        await alert_service.update(alert_id, AlertUpdate(is_active=not alert.is_active))
+    return await render_alerts_list(request, alert_service, pair=scope)
+
+
+@partials_router.delete("/alerts/{alert_id}", response_class=HTMLResponse, dependencies=RateLimited)
+async def delete_alert_partial(
+    request: Request,
+    alert_id: int,
+    alert_service: Alerts,
+    service: MarketService,
+    pair: PairScope = None,
+) -> HTMLResponse:
+    scope = scope_symbol(pair, service)
+    # An alert that is already gone is not an error here: the outcome is the same.
+    await alert_service.delete(alert_id)
+    return await render_alerts_list(request, alert_service, pair=scope)
